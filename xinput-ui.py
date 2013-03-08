@@ -303,7 +303,7 @@ class PendingMasterContext(wx.Menu):
         self.window = window
         self.device = device
         
-        self.cancel = wx.MenuItem (self, wx.NewId(), 'Undo create pointer '+self.device.name)
+        self.cancel = wx.MenuItem (self, wx.NewId(), 'Cancel create pointer '+self.device.name)
         self.AppendItem (self.cancel)
         self.Bind (wx.EVT_MENU, self.OnCancel, self.cancel)
         
@@ -397,10 +397,20 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
             return
         
         if target_device in self.window.all_creations:
-            return #TODO popup
+            wx.MessageBox (
+                'Cannot add input devices to a pending pointer! '+
+                'Hit "Apply" first to finish creating pointer "'+
+                target_device.name+'"', 'Error', wx.OK | wx.ICON_EXCLAMATION
+            )
+            return
         
         if target_device in self.window.all_deletions:
-            return #TODO popup
+            wx.MessageBox (
+                'Pointer "'+target_device.name+'" is pending deletion! '+
+                'To cancel deletion of this pointer, right-click it and '+
+                'select "Cancel delete."', 'Error', wx.OK | wx.ICON_EXCLAMATION
+            )
+            return 
         
         self.window.MoveDevice (source_device, target_device)
     
@@ -669,6 +679,16 @@ class UI (wx.Frame):
         self.vbox.addFloating (self.stats.all_devices[FLOATING_ID])
     
     def refreshDevices (self, evt):
+        if len (self.vbox.all_commands):
+            confirm = wx.MessageDialog (self,
+                    'You still have pending changes! These will be lost if '+
+                    'you refresh the device list. Refresh anyway?',
+                    'Proceed?', wx.YES_NO | wx.ICON_QUESTION
+                )
+            result = confirm.ShowModal ()
+            confirm.Destroy ()
+            if result == wx.ID_NO:
+                return
         self.stats = Rawstatus().Status()
         self.vbox.clearTree()
         self.initDevices ()
