@@ -487,6 +487,8 @@ class MainColumn (wx.BoxSizer):
         self.root = self.tree.AddRoot ("Pointers")
         self.treepanelsizer.Add(self.tree, flag = wx.EXPAND, proportion = 1)
         
+        self.treepanel.SetMinSize ((-1, 75))
+        
         self.treepanel.SetSizer (self.treepanelsizer)
         
         self.tree.Bind (wx.EVT_TREE_BEGIN_DRAG, self.BeginDrag)
@@ -501,6 +503,8 @@ class MainColumn (wx.BoxSizer):
         self.cmdlist = wx.ListCtrl (self.cmdlistpanel, style = wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_NO_HEADER)
         self.cmdlist.InsertColumn (0, "Commands", width = 250)
         self.cmdlistpanelsizer.Add (self.cmdlist, flag = wx.EXPAND, proportion = 1)
+        
+        self.cmdlistpanel.SetMinSize ((-1, 50))
         
         self.cmdlistpanel.SetSizer (self.cmdlistpanelsizer)
         
@@ -695,6 +699,8 @@ class UI (wx.Frame):
     def __init__(self, parent, title):
     
         super(UI, self).__init__(parent, title = title, size = (320, 500))
+        
+        self.SetMinSize ((260, 150))
         
         self.panel = wx.Panel (self)
         self.vbox = MainColumn (self, self.panel)
