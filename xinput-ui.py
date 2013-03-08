@@ -50,9 +50,6 @@ def mystrip (string):
 def mysort (device_set):
     return sorted(device_set, key = operator.attrgetter ('self_id'))
 
-def generate_unique ():
-    return []
-
 class MasterDevice:
     
     def __init__ (self, status, name):
@@ -68,9 +65,6 @@ class MasterDevice:
     
     def add_device (self, device):
         self.devices.add(device)
-    
-    def remove_device (self, device):
-        self.devices.remove(device)
 
 class SlaveDevice:
     
@@ -82,8 +76,7 @@ class SlaveDevice:
         self.parent_id = None
     
     def set_parent (self, parent_id):
-        if self.parent != None:
-            self.parent.remove_device (self)
+        assert self.parent == None
         self.parent_id = parent_id
         self.parent = self.status.get_device (parent_id)
         self.parent.add_device (self)
@@ -195,9 +188,7 @@ class FloatingSlaveContext(wx.Menu):
     
     def OnUndoDetach (self, evt):
         
-        target_menuitem = self.window.tree.all_devices[self.device.parent]
-        self.window.MoveMenuItem (self.device_menuitem, target_menuitem)
-        self.window.DeviceMoved (self.device, self.device.parent)
+        self.window.MoveDevice (self.device, self.device.parent)
 
 class AttachedSlaveContext(wx.Menu):
     
@@ -222,16 +213,12 @@ class AttachedSlaveContext(wx.Menu):
     
     def OnUndoMove (self, evt):
         
-        target_menuitem = self.window.tree.all_devices[self.device.parent]
-        self.window.MoveMenuItem (self.device_menuitem, target_menuitem)
-        self.window.DeviceMoved (self.device, self.device.parent)
+        self.window.MoveDevice (self.device, self.device.parent)
     
     def OnDetach (self, evt):
         
         target_device = self.window.UI.stats.get_device (FLOATING_ID)
-        target_menuitem = self.window.tree.all_devices[target_device]
-        self.window.MoveMenuItem (self.device_menuitem, target_menuitem)
-        self.window.DeviceMoved (self.device, target_device)
+        self.window.MoveDevice (self.device, target_device)
 
 class MasterDeviceContext(wx.Menu):
     
@@ -264,13 +251,11 @@ class MasterDeviceContext(wx.Menu):
     def OnDetachAll (self, evt):
         
         target_device = self.window.UI.stats.get_device (FLOATING_ID)
-        target_menuitem = self.window.tree.all_devices[target_device]
         
         while self.window.tree.ItemHasChildren (self.device_menuitem):
             child_menuitem, cookie = self.window.tree.GetFirstChild(self.device_menuitem)
             child_device = self.window.tree.GetItemPyData(child_menuitem)
-            self.window.MoveMenuItem (child_menuitem, target_menuitem)
-            self.window.DeviceMoved (child_device, target_device)
+            self.window.MoveDevice (child_device, target_device)
     
     def OnDelete (self, evt):
         
@@ -297,20 +282,12 @@ class MasterDeviceContext(wx.Menu):
             child_menuitem, cookie = self.window.tree.GetNextChild(self.device_menuitem, cookie)
         
         for child_device in children_to_move:
-            child_menuitem = self.window.tree.all_devices[child_device]
-            target_menuitem = self.window.tree.all_devices[child_device.parent]
-            self.window.MoveMenuItem (child_menuitem, target_menuitem)
-            self.window.DeviceMoved (child_device, child_device.parent)
+            self.window.MoveDevice (child_device, child_device.parent)
         
         # Now undo any devices that have been moved away from this master
         
         for child_device in self.device.devices:
-            if child_device in self.window.all_moves:
-                self.window.all_moves.pop (child_device)
-                child_menuitem = self.window.tree.all_devices[child_device]
-                self.window.MoveMenuItem (child_menuitem, self.device_menuitem)
-        
-        self.window.RefreshCommandList ()
+            self.window.MoveDevice (child_device, self.device)
     
     def OnUndoDelete (self, evt):
         
@@ -582,12 +559,12 @@ class MainColumn (wx.BoxSizer):
         if target_device in self.all_deletions:
             return #TODO popup
         
-        self.MoveMenuItem (source_menuitem, target_menuitem)
-        self.DeviceMoved (source_device, target_device)
+        self.MoveDevice (source_device, target_device)
     
-    def MoveMenuItem (self, source_menuitem, target_menuitem):
+    def MoveDevice (self, source_device, target_device):
         
-        source_device = self.tree.GetItemPyData (source_menuitem)
+        source_menuitem = self.tree.all_devices[source_device]
+        target_menuitem = self.tree.all_devices[target_device]
         
         self.tree.Delete (source_menuitem)
         
@@ -595,8 +572,6 @@ class MainColumn (wx.BoxSizer):
         self.tree.SetItemText (new_menuitem, str(source_device.self_id), 1)
         self.tree.SetItemPyData (new_menuitem, source_device)
         self.tree.Expand (target_menuitem)
-    
-    def DeviceMoved (self, source_device, target_device):
         
         if source_device.parent == target_device:
             self.all_moves.pop (source_device, None)
