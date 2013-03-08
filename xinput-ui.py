@@ -172,12 +172,11 @@ class MyTextDropTarget(wx.TextDropTarget):
 
 class FloatingSlaveContext(wx.Menu):
     
-    def __init__ (self, window, device_menuitem, device, deviceparent):
+    def __init__ (self, window, device, deviceparent):
         
         super(FloatingSlaveContext, self).__init__()
         
         self.window = window
-        self.device_menuitem = device_menuitem
         self.device = device
         self.deviceparent = deviceparent
         
@@ -192,12 +191,11 @@ class FloatingSlaveContext(wx.Menu):
 
 class AttachedSlaveContext(wx.Menu):
     
-    def __init__ (self, window, device_menuitem, device, deviceparent):
+    def __init__ (self, window, device, deviceparent):
         
         super(AttachedSlaveContext, self).__init__()
         
         self.window = window
-        self.device_menuitem = device_menuitem
         self.device = device
         self.deviceparent = deviceparent
         
@@ -222,12 +220,12 @@ class AttachedSlaveContext(wx.Menu):
 
 class MasterDeviceContext(wx.Menu):
     
-    def __init__ (self, window, device_menuitem, device):
+    def __init__ (self, window, device):
         
         super(MasterDeviceContext, self).__init__()
         
         self.window = window
-        self.device_menuitem = device_menuitem
+        self.device_menuitem = self.window.tree.all_devices[device]
         self.device = device
         
         if self.device in self.window.all_deletions:
@@ -298,12 +296,11 @@ class MasterDeviceContext(wx.Menu):
 
 class PendingMasterContext(wx.Menu):
     
-    def __init__ (self, window, device_menuitem, device):
+    def __init__ (self, window, device):
         
         super(PendingMasterContext, self).__init__()
         
         self.window = window
-        self.device_menuitem = device_menuitem
         self.device = device
         
         self.cancel = wx.MenuItem (self, wx.NewId(), 'Undo create pointer '+self.device.name)
@@ -313,15 +310,34 @@ class PendingMasterContext(wx.Menu):
     def OnCancel (self, evt):
         
         self.window.all_creations.remove (self.device)
-        self.window.tree.Delete (self.device_menuitem)
+        self.window.tree.Delete (self.device)
         
         self.window.RefreshCommandList ()
 
 class DeviceTree (wx.gizmos.TreeListCtrl):
     
-    def __init__ (self, *args, **kwargs):
+    def __init__ (self, window, panel, *args, **kwargs):
         
-        super (DeviceTree, self).__init__(*args, **kwargs)
+        self.window = window
+        self.panel = panel
+        
+        self.label = wx.StaticBox (self.panel, label = "Devices:")
+        self.sizer = wx.StaticBoxSizer (self.label, wx.VERTICAL)
+        
+        super (DeviceTree, self).__init__(panel, *args, **kwargs)
+        
+        self.AddColumn ("Name", 250)
+        self.AddColumn ("ID", 30)
+        self.root = self.AddRoot ("Pointers")
+        self.sizer.Add(self, flag = wx.EXPAND, proportion = 1)
+        
+        self.panel.SetMinSize ((-1, 75))
+        
+        self.panel.SetSizer (self.sizer)
+        
+        self.Bind (wx.EVT_TREE_BEGIN_DRAG, self.OnBeginDrag)
+        self.Bind (wx.EVT_TREE_END_DRAG, self.OnEndDrag)
+        self.Bind (wx.EVT_TREE_ITEM_RIGHT_CLICK, self.OnRightClick)
         
         self.all_devices = {}
     
@@ -332,6 +348,9 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.all_devices.update ({data: it})
     
     def Delete (self, it, *args, **kwargs):
+        
+        if it in self.all_devices:
+            it = self.all_devices[it]
         
         super (DeviceTree, self).Delete (it, *args, **kwargs)
         
@@ -344,6 +363,69 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         super (DeviceTree, self).DeleteAllItems (*args, **kwargs)
         
         self.all_devices = {}
+    
+    def OnBeginDrag (self, evt):
+        it = evt.GetItem ()
+        self.dragItem = None
+        if self.GetItemPyData(it).__class__ != SlaveDevice:
+            return
+        self.dragItem = it
+        evt.Allow ()
+    
+    def FindListEntryParentDevice (self, listitem):
+        if self.GetItemPyData(listitem).__class__ == SlaveDevice:
+            listitem = self.GetItemParent (listitem)
+        return self.GetItemPyData(listitem)
+    
+    def OnEndDrag (self, evt):
+    
+        if evt.GetItem ().IsOk ():
+            target_menuitem = evt.GetItem ()
+        else:
+            return
+        
+        source_menuitem = self.dragItem
+        
+        if source_menuitem == None:
+            return
+        
+        sourcemaster_device = self.FindListEntryParentDevice (source_menuitem)
+        target_device = self.FindListEntryParentDevice (target_menuitem)
+        source_device = self.GetItemPyData(source_menuitem)
+        
+        if sourcemaster_device == target_device:
+            return
+        
+        if target_device in self.window.all_creations:
+            return #TODO popup
+        
+        if target_device in self.window.all_deletions:
+            return #TODO popup
+        
+        self.window.MoveDevice (source_device, target_device)
+    
+    def OnRightClick (self, evt):
+        
+        if evt.GetItem ().IsOk ():
+            target = evt.GetItem ()
+        else:
+            return
+            
+        targetparent_device = self.FindListEntryParentDevice (target)
+        target_device = self.GetItemPyData(target)
+        
+        if targetparent_device in self.window.all_creations:
+            self.PopupMenu (PendingMasterContext (self.window, target_device))
+        elif targetparent_device.self_id == FLOATING_ID:
+            if target_device == targetparent_device:
+                pass
+            else:
+                self.PopupMenu (FloatingSlaveContext (self.window, target_device, targetparent_device))
+        else:
+            if target_device == targetparent_device:
+                self.PopupMenu (MasterDeviceContext (self.window, target_device))
+            else:
+                self.PopupMenu (AttachedSlaveContext (self.window, target_device, targetparent_device))
 
 class MainColumn (wx.BoxSizer):
     
@@ -439,22 +521,7 @@ class MainColumn (wx.BoxSizer):
     def initTree (self):
     
         self.treepanel = wx.Panel (self.splitter)
-        self.treelabel = wx.StaticBox (self.treepanel, label = "Devices:")
-        self.treepanelsizer = wx.StaticBoxSizer (self.treelabel, wx.VERTICAL)
-        
-        self.tree = DeviceTree (self.treepanel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
-        self.tree.AddColumn ("Name", 250)
-        self.tree.AddColumn ("ID", 30)
-        self.root = self.tree.AddRoot ("Pointers")
-        self.treepanelsizer.Add(self.tree, flag = wx.EXPAND, proportion = 1)
-        
-        self.treepanel.SetMinSize ((-1, 75))
-        
-        self.treepanel.SetSizer (self.treepanelsizer)
-        
-        self.tree.Bind (wx.EVT_TREE_BEGIN_DRAG, self.BeginDrag)
-        self.tree.Bind (wx.EVT_TREE_END_DRAG, self.EndDrag)
-        self.tree.Bind (wx.EVT_TREE_ITEM_RIGHT_CLICK, self.RightClickTree)
+        self.tree = DeviceTree (self, self.treepanel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
     
     def initCmdList (self):
         self.cmdlistpanel = wx.Panel (self.splitter)
@@ -474,12 +541,12 @@ class MainColumn (wx.BoxSizer):
         self.all_deletions = set()
         self.all_creations = set()
         self.tree.DeleteAllItems ()
-        self.root = self.tree.AddRoot ("Pointers")
+        self.tree.root = self.tree.AddRoot ("Pointers")
         self.RefreshCommandList ()
     
     def addMaster (self, device):
     
-        menudev = self.tree.AppendItem (self.root, device.name)
+        menudev = self.tree.AppendItem (self.tree.root, device.name)
         self.tree.SetItemPyData (menudev, device)
         
         for slave in mysort(device.devices):
@@ -491,7 +558,7 @@ class MainColumn (wx.BoxSizer):
     
     def addFloating (self, device):
         
-        menudev = self.tree.AppendItem (self.root, "Unattached Devices")
+        menudev = self.tree.AppendItem (self.tree.root, "Unattached Devices")
         self.tree.SetItemPyData (menudev, device)
         
         for slave in mysort(device.devices):
@@ -511,7 +578,7 @@ class MainColumn (wx.BoxSizer):
         
         self.all_creations.add (newdevice)
         
-        menudev = self.tree.AppendItem (self.root, newdevice.name+' (pending)' )
+        menudev = self.tree.AppendItem (self.tree.root, newdevice.name+' (pending)' )
         self.tree.SetItemPyData (menudev, newdevice)
         
         self.RefreshCommandList ()
@@ -519,54 +586,11 @@ class MainColumn (wx.BoxSizer):
     def OnNewMasterCancel (self, evt):
         self.hideNewMasterName ()
     
-    def BeginDrag (self, evt):
-        it = evt.GetItem ()
-        self.dragItem = None
-        if self.tree.GetItemPyData(it).__class__ != SlaveDevice:
-            return
-        self.dragItem = it
-        evt.Allow ()
-    
-    def FindListEntryParentDevice (self, listitem):
-        if self.tree.GetItemPyData(listitem).__class__ == SlaveDevice:
-            listitem = self.tree.GetItemParent (listitem)
-        return listitem
-    
-    def EndDrag (self, evt):
-    
-        if evt.GetItem ().IsOk ():
-            target_menuitem = evt.GetItem ()
-        else:
-            return
-        
-        source_menuitem = self.dragItem
-        
-        if source_menuitem == None:
-            return
-        
-        sourcemaster_menuitem = self.FindListEntryParentDevice (source_menuitem)
-        target_menuitem = self.FindListEntryParentDevice (target_menuitem)
-        
-        target_device = self.tree.GetItemPyData(target_menuitem)
-        source_device = self.tree.GetItemPyData(source_menuitem)
-        
-        if self.tree.GetItemPyData(sourcemaster_menuitem) == target_device:
-            return
-        
-        if target_device in self.all_creations:
-            return #TODO popup
-        
-        if target_device in self.all_deletions:
-            return #TODO popup
-        
-        self.MoveDevice (source_device, target_device)
-    
     def MoveDevice (self, source_device, target_device):
         
-        source_menuitem = self.tree.all_devices[source_device]
         target_menuitem = self.tree.all_devices[target_device]
         
-        self.tree.Delete (source_menuitem)
+        self.tree.Delete (source_device)
         
         new_menuitem = self.tree.AppendItem (target_menuitem, source_device.name)
         self.tree.SetItemText (new_menuitem, str(source_device.self_id), 1)
@@ -616,34 +640,6 @@ class MainColumn (wx.BoxSizer):
         
         evt = wx.CommandEvent(wx.wxEVT_COMMAND_BUTTON_CLICKED, self.button_refresh.GetId())
         wx.PostEvent(self.button_refresh, evt)
-    
-    def RightClickTree (self, evt):
-        
-        if evt.GetItem ().IsOk ():
-            target = evt.GetItem ()
-        else:
-            return
-            
-        self.tree.SelectItem(target)
-        
-        targetparent = self.FindListEntryParentDevice (target)
-        
-        target_device = self.tree.GetItemPyData(target)
-        targetparent_device = self.tree.GetItemPyData(targetparent)
-        
-        if targetparent_device in self.all_creations:
-            self.tree.PopupMenu (PendingMasterContext (self, target, target_device))
-        elif targetparent_device.self_id == FLOATING_ID:
-            if target_device == targetparent_device:
-                pass
-            else:
-                self.tree.PopupMenu (FloatingSlaveContext (self, target, target_device, targetparent_device))
-        else:
-            if target_device == targetparent_device:
-                self.tree.PopupMenu (MasterDeviceContext (self, target, target_device))
-            else:
-                self.tree.PopupMenu (AttachedSlaveContext (self, target, target_device, targetparent_device))
-    
 
 class UI (wx.Frame):
     
