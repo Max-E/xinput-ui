@@ -54,7 +54,7 @@ class MasterDevice:
     
     def __init__ (self, status, name):
         self.name = name
-        self.devices = set()
+        self.children = set()
     
     def set_pointer_id (self, pointer_id):
         self.pointer_id = pointer_id
@@ -64,7 +64,7 @@ class MasterDevice:
         self.keyboard_id = keyboard_id
     
     def add_device (self, device):
-        self.devices.add(device)
+        self.children.add(device)
 
 class SlaveDevice:
     
@@ -73,11 +73,9 @@ class SlaveDevice:
         self.self_id = self_id
         self.name = name
         self.parent = None
-        self.parent_id = None
     
     def set_parent (self, parent_id):
         assert self.parent == None
-        self.parent_id = parent_id
         self.parent = self.status.get_device (parent_id)
         self.parent.add_device (self)
 
@@ -88,13 +86,32 @@ class PendingDevice:
 
 class Status:
     
-    def __init__ (self, rawstatus):
+    def __init__ (self):
+        self.read_devices ()
+        self.sort_devices ()
+    
+    def read_devices (self):
+    
+        self.unsorted_devices = {}
+        
+        for line in run_command (["/usr/bin/env", "xinput", "list"]):
+        
+            raw_device = [mystrip(field) for field in line.split ('\t')]
+            raw_class_data = [field.strip('()') for field in raw_device[2][1:-1].split()]
+            
+            device_self_id = int (raw_device[1].split('=')[1])
+            device_name = raw_device[0]
+            
+            if device_name.find ("XTEST") == -1:
+                self.unsorted_devices.update ({device_self_id: [device_name, raw_class_data]})
+    
+    def sort_devices (self):
         self.all_devices = {}
         self.all_masters = set()
-        self.init_masters (rawstatus)
-        self.init_slaves (rawstatus)
+        self.init_masters ()
+        self.init_slaves ()
     
-    def init_masters (self, rawstatus):
+    def init_masters (self):
     
         device = MasterDevice (self, "(floating)")
         device.set_pointer_id (FLOATING_ID)
@@ -102,7 +119,7 @@ class Status:
         self.all_devices.update ({FLOATING_ID: device})
         self.all_masters.add (device)
     
-        for device_id, rawdevice in rawstatus.get_all_devices ():
+        for device_id, rawdevice in self.unsorted_devices.iteritems():
             if rawdevice[1][0] != 'master' or rawdevice[1][1] != 'pointer':
                 continue
             device = MasterDevice (self, rawdevice[0])
@@ -110,15 +127,15 @@ class Status:
             self.all_devices.update ({device_id: device})
             self.all_masters.add (device)
         
-        for device_id, rawdevice in rawstatus.get_all_devices ():
+        for device_id, rawdevice in self.unsorted_devices.iteritems ():
             if rawdevice[1][0] != 'master' or rawdevice[1][1] != 'keyboard':
                 continue
             device = self.all_devices[int(rawdevice[1][2])]
             device.set_keyboard_id (device_id)
             self.all_devices.update ({device_id: device})
     
-    def init_slaves (self, rawstatus):
-        for device_id, rawdevice in rawstatus.get_all_devices ():
+    def init_slaves (self):
+        for device_id, rawdevice in self.unsorted_devices.iteritems ():
             if rawdevice[1][0] == 'master':
                 continue 
             device = None
@@ -133,33 +150,6 @@ class Status:
     
     def get_device (self, device_id):
         return self.all_devices[device_id]
-
-class Rawstatus:
-    
-    def __init__ (self):
-        self.all_devices = {}
-        for line in run_command (["/usr/bin/env", "xinput", "list"]):
-            self.add_device (line)
-    
-    def add_device (self, line):
-        raw_device = [mystrip(field) for field in line.split ('\t')]
-        raw_class_data = [field.strip('()') for field in raw_device[2][1:-1].split()]
-        
-        device_self_id = int (raw_device[1].split('=')[1])
-        device_name = raw_device[0]
-        
-        if device_name.find ("XTEST") != -1:
-            return
-        
-        self.all_devices.update ({device_self_id: [device_name, raw_class_data]})
-    
-    def get_all_devices (self):
-        return self.all_devices.iteritems()
-    
-    def Status (self):
-        return Status (self)
-
-app = wx.App()
 
 class MyTextDropTarget(wx.TextDropTarget):
 
@@ -284,7 +274,7 @@ class MasterDeviceContext(wx.Menu):
         
         # Now undo any devices that have been moved away from this master
         
-        for child_device in self.device.devices:
+        for child_device in self.device.children:
             self.window.MoveDevice (child_device, self.device)
     
     def OnUndoDelete (self, evt):
@@ -559,7 +549,7 @@ class MainColumn (wx.BoxSizer):
         menudev = self.tree.AppendItem (self.tree.root, device.name)
         self.tree.SetItemPyData (menudev, device)
         
-        for slave in mysort(device.devices):
+        for slave in mysort(device.children):
             it = self.tree.AppendItem (menudev, slave.name)
             self.tree.SetItemText (it, str(slave.self_id), 1)
             self.tree.SetItemPyData (it, slave) 
@@ -571,7 +561,7 @@ class MainColumn (wx.BoxSizer):
         menudev = self.tree.AppendItem (self.tree.root, "Unattached Devices")
         self.tree.SetItemPyData (menudev, device)
         
-        for slave in mysort(device.devices):
+        for slave in mysort(device.children):
             it = self.tree.AppendItem (menudev, slave.name)
             self.tree.SetItemText (it, str(slave.self_id), 1)
             self.tree.SetItemPyData (it, slave) 
@@ -664,7 +654,7 @@ class UI (wx.Frame):
         
         self.Bind (wx.EVT_BUTTON, self.refreshDevices, self.vbox.button_refresh)
         
-        self.stats = Rawstatus().Status()
+        self.stats = Status()
         
         self.initDevices ()
         
@@ -689,12 +679,12 @@ class UI (wx.Frame):
             confirm.Destroy ()
             if result == wx.ID_NO:
                 return
-        self.stats = Rawstatus().Status()
+        self.stats = Status()
         self.vbox.clearTree()
         self.initDevices ()
-        
-UI(None, title = 'Xinput-UI')
 
+app = wx.App()
+UI(None, title = 'Xinput-UI')
 app.MainLoop()
 
  
