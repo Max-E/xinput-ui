@@ -638,6 +638,8 @@ class MainColumn (wx.BoxSizer):
         for cmd in self.all_commands:
             subprocess.Popen (["/usr/bin/env"] + cmd)
         
+        self.all_commands = []
+        
         evt = wx.CommandEvent(wx.wxEVT_COMMAND_BUTTON_CLICKED, self.button_refresh.GetId())
         wx.PostEvent(self.button_refresh, evt)
 
