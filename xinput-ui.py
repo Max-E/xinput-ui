@@ -45,13 +45,16 @@ def run_command (command):
                          stderr=subprocess.STDOUT)
     return iter(p.stdout.readline, b'')
 
+# Strip all the extra Unicode characters "xinput list" likes to output
 def mystrip (string):
     return string.strip(str_whitespace+'\xe2\x8e\xa1\xe2\x8e\x9c\xe2\x86\xb3\xe2\x8e\xa3\x88\xbc')
 
-def mysort (device_set):
+def device_sort (device_set):
     return sorted(device_set, key = operator.attrgetter ('self_id'))
 
-class MasterDevice:
+# These device classes must all have a public "name" attribute
+
+class MasterDevice: # virtual device
     
     def __init__ (self, name):
         self.name = name
@@ -60,30 +63,30 @@ class MasterDevice:
     
     def set_pointer_id (self, pointer_id):
         self.pointer_id = pointer_id
-        self.self_id = pointer_id # for mysort
+        self.self_id = pointer_id # for device_sort
     
     def set_keyboard_id (self, keyboard_id):
         self.keyboard_id = keyboard_id
     
-    def add_device (self, device):
+    def add_slave (self, slave_id, slave_name):
         assert self.self_id != INVALID_ID
         assert self.pointer_id != INVALID_ID
         assert self.keyboard_id != INVALID_ID
-        self.children.add(device)
+        self.children.add (SlaveDevice (self, slave_id, slave_name))
 
-class SlaveDevice:
+class SlaveDevice: # real physical hardware device
     
     def __init__ (self, parent, self_id, name):
         self.self_id = self_id
         self.name = name
         self.parent = parent
-        self.parent.add_device (self)
     
-class PendingDevice:
+class PendingDevice: # virtual device which is pending creation
     
     def __init__ (self, name):
         self.name = name
 
+# Reads the raw output of "xinput list" and parses it somewhat
 def read_raw_device_data ():
     
     ret = {}
@@ -96,25 +99,28 @@ def read_raw_device_data ():
         device_self_id = int (raw_device[1].split('=')[1])
         device_name = raw_device[0]
         
+        # filter out XTEST devices
         if device_name.find ("XTEST") == -1:
             ret.update ({device_self_id: [device_name, raw_class_data]})
     
     return ret
 
+# Returns a list of MasterDevice objects, each of which may be populated with
+# SlaveDevice objects.
 def get_device_status ():
     
     unsorted_devices = read_raw_device_data ()
     
     all_masters = {}
     # same as all_masters but with duplicate entries for keyboard device IDs.
-    all_devices = {} 
+    all_master_aliases = {} 
     
     # initialize master devices
     
-    device = MasterDevice ("(floating)")
+    device = MasterDevice ("Unattached Devices")
     device.set_pointer_id (FLOATING_ID)
     device.set_keyboard_id (FLOATING_ID)
-    all_devices.update ({FLOATING_ID: device})
+    all_master_aliases.update ({FLOATING_ID: device})
     all_masters.update ({FLOATING_ID: device})
 
     for device_id, rawdevice in unsorted_devices.iteritems():
@@ -122,28 +128,27 @@ def get_device_status ():
             continue
         device = MasterDevice (rawdevice[0])
         device.set_pointer_id (device_id)
-        all_devices.update ({device_id: device})
+        all_master_aliases.update ({device_id: device})
         all_masters.update ({device_id: device})
     
     for device_id, rawdevice in unsorted_devices.iteritems ():
         if rawdevice[1][0] != 'master' or rawdevice[1][1] != 'keyboard':
             continue
-        device = all_devices[int(rawdevice[1][2])]
+        device = all_master_aliases[int(rawdevice[1][2])]
         device.set_keyboard_id (device_id)
-        all_devices.update ({device_id: device})
+        all_master_aliases.update ({device_id: device})
     
     # initialize slave devices and attach them to their parent master devices
     
     for device_id, rawdevice in unsorted_devices.iteritems ():
         if rawdevice[1][0] == 'master':
             continue 
-        device = None
         master_id = None
         if rawdevice[1][0] == 'floating':
             master_id = FLOATING_ID
         else:
             master_id = int(rawdevice[1][2])
-        device = SlaveDevice (all_devices[master_id], device_id, rawdevice[0])
+        all_master_aliases[master_id].add_slave (device_id, rawdevice[0])
     
     return all_masters
 
@@ -330,6 +335,18 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         self.selection_context = None
     
+    def addMaster (self, device):
+    
+        menudev = self.AppendItem (self.root, device.name)
+        self.SetItemPyData (menudev, device)
+        
+        for slave in device_sort(device.children):
+            it = self.AppendItem (menudev, slave.name)
+            self.SetItemText (it, str(slave.self_id), 1)
+            self.SetItemPyData (it, slave) 
+        
+        self.Expand (menudev)
+    
     def SetItemPyData (self, it, data):
         
         super (DeviceTree, self).SetItemPyData(it, data)
@@ -351,6 +368,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         super (DeviceTree, self).DeleteAllItems (*args, **kwargs)
         
+        self.root = self.AddRoot ("Pointers")
         self.all_devices = {}
     
     def OnBeginDrag (self, evt):
@@ -448,7 +466,10 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         if self.selection_context != None:
             self.PopupMenu (self.selection_context)
-        
+
+# The toolbar that appears when you click on "Add." It has a text field for
+# editing the name of the master pointer to create, as well as "OK" and 
+# "Cancel" buttons.
 class NewMasterBar (wx.Panel):
     
     def __init__ (self, parent):
@@ -497,6 +518,7 @@ class NewMasterBar (wx.Panel):
     def GetValue (self):
         return self.input.GetValue ()
 
+# FIXME god object
 class MainColumn (wx.BoxSizer):
     
     def __init__ (self, UI, panel):
@@ -583,32 +605,7 @@ class MainColumn (wx.BoxSizer):
         self.all_deletions = set()
         self.all_creations = set()
         self.tree.DeleteAllItems ()
-        self.tree.root = self.tree.AddRoot ("Pointers")
         self.RefreshCommandList ()
-    
-    def addMaster (self, device):
-    
-        menudev = self.tree.AppendItem (self.tree.root, device.name)
-        self.tree.SetItemPyData (menudev, device)
-        
-        for slave in mysort(device.children):
-            it = self.tree.AppendItem (menudev, slave.name)
-            self.tree.SetItemText (it, str(slave.self_id), 1)
-            self.tree.SetItemPyData (it, slave) 
-        
-        self.tree.Expand (menudev)
-    
-    def addFloating (self, device):
-        
-        menudev = self.tree.AppendItem (self.tree.root, "Unattached Devices")
-        self.tree.SetItemPyData (menudev, device)
-        
-        for slave in mysort(device.children):
-            it = self.tree.AppendItem (menudev, slave.name)
-            self.tree.SetItemText (it, str(slave.self_id), 1)
-            self.tree.SetItemPyData (it, slave) 
-        
-        self.tree.Expand (menudev)
     
     def OnDelete (self, evt):
         
@@ -712,11 +709,12 @@ class UI (wx.Frame):
     
     def initDevices (self):
         
-        for device in mysort(self.master_devices.values()):
-            if device.name != '(floating)':
-                self.vbox.addMaster (device)
+        for device in device_sort(self.master_devices.values()):
+            if device.self_id != FLOATING_ID:
+                self.vbox.tree.addMaster (device)
         
-        self.vbox.addFloating (self.master_devices[FLOATING_ID])
+        # make sure the floating devices list comes last
+        self.vbox.tree.addMaster (self.master_devices[FLOATING_ID])
     
     def refreshDevices (self, evt):
         if len (self.vbox.all_commands):
