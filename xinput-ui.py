@@ -697,7 +697,7 @@ class UI (wx.Frame):
     
         super(UI, self).__init__(parent, title = title, size = (400, 500))
         
-        self.SetMinSize ((260, 150))
+        self.SetMinSize ((340, 150))
         
         self.panel = wx.Panel (self)
         self.vbox = MainColumn (self, self.panel)
