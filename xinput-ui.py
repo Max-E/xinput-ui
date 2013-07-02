@@ -232,7 +232,7 @@ class MasterDeviceContext(wx.Menu):
         target_device = self.window.UI.master_devices[FLOATING_ID]
         
         while self.window.tree.ItemHasChildren (self.device_menuitem):
-            child_menuitem = self.window.tree.GetFirstChild(self.device_menuitem)
+            child_menuitem, unused_cookie = self.window.tree.GetFirstChild(self.device_menuitem)
             child_device = self.window.tree.GetItemPyData(child_menuitem)
             self.window.MoveDevice (child_device, target_device)
     
