@@ -194,6 +194,10 @@ class AttachedSlaveContext(wx.Menu):
         
         target_device = self.window.UI.master_devices[FLOATING_ID]
         self.window.MoveDevice (self.device, target_device)
+    
+    def OnDeleteButton (self, evt):
+        
+        self.OnDetach (evt)
 
 class MasterDeviceContext(wx.Menu):
     
@@ -241,6 +245,10 @@ class MasterDeviceContext(wx.Menu):
         self.window.all_deletions.add (self.device)
         
         self.window.RefreshCommandList ()
+    
+    def OnDeleteButton (self, evt):
+        
+        self.OnDelete (evt)
     
     def OnReset (self, evt):
         
@@ -303,7 +311,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         super (DeviceTree, self).__init__(panel, *args, **kwargs)
         
-        self.AddColumn ("Name", 250)
+        self.AddColumn ("Name", 350)
         self.AddColumn ("ID", 30)
         self.root = self.AddRoot ("Pointers")
         self.sizer.Add(self, flag = wx.EXPAND, proportion = 1)
@@ -316,7 +324,11 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.Bind (wx.EVT_TREE_END_DRAG, self.OnEndDrag)
         self.Bind (wx.EVT_TREE_ITEM_RIGHT_CLICK, self.OnRightClick)
         
+        self.Bind (wx.EVT_TREE_SEL_CHANGED, self.OnSelectItem)
+        
         self.all_devices = {}
+        
+        self.selection_context = None
     
     def SetItemPyData (self, it, data):
         
@@ -391,29 +403,52 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         self.window.MoveDevice (source_device, target_device)
     
+    def OnSelectItem (self, evt):
+        
+        self.selection_context = None
+        
+        if evt.GetItem ().IsOk ():
+            target = evt.GetItem ()
+        else:
+            self.selection_context = None
+            self.window.button_del.Enable (False)
+            return
+        
+        target_device = self.GetItemPyData(target)
+        targetparent_device = self.FindListEntryParentDevice (target)
+        
+        if targetparent_device in self.window.all_creations:
+            self.selection_context = PendingMasterContext (self.window, target_device)
+        elif targetparent_device == None:
+            pass
+        elif targetparent_device.self_id == FLOATING_ID:
+            if target_device == targetparent_device:
+                pass
+            else:
+                self.selection_context = FloatingSlaveContext (self.window, target_device, targetparent_device)
+        else:
+            if target_device == targetparent_device:
+                self.selection_context = MasterDeviceContext (self.window, target_device)
+            else:
+                self.selection_context = AttachedSlaveContext (self.window, target_device, targetparent_device)
+        
+        if target_device == None or targetparent_device.self_id == FLOATING_ID:
+            self.window.button_del.Enable (False)
+        else:
+            self.window.button_del.Enable (True)
+        
     def OnRightClick (self, evt):
         
         if evt.GetItem ().IsOk ():
             target = evt.GetItem ()
         else:
             return
-            
-        targetparent_device = self.FindListEntryParentDevice (target)
-        target_device = self.GetItemPyData(target)
         
-        if targetparent_device in self.window.all_creations:
-            self.PopupMenu (PendingMasterContext (self.window, target_device))
-        elif targetparent_device.self_id == FLOATING_ID:
-            if target_device == targetparent_device:
-                pass
-            else:
-                self.PopupMenu (FloatingSlaveContext (self.window, target_device, targetparent_device))
-        else:
-            if target_device == targetparent_device:
-                self.PopupMenu (MasterDeviceContext (self.window, target_device))
-            else:
-                self.PopupMenu (AttachedSlaveContext (self.window, target_device, targetparent_device))
-
+        self.SelectItem (target)
+        
+        if self.selection_context != None:
+            self.PopupMenu (self.selection_context)
+        
 class NewMasterBar (wx.Panel):
     
     def __init__ (self, parent):
@@ -509,6 +544,11 @@ class MainColumn (wx.BoxSizer):
         self.toolbar.Add (self.button_new)
         self.panel.Bind (wx.EVT_BUTTON, self.OnNewMasterStart, self.button_new)
         
+        self.button_del = wx.Button (self.toolbar_panel, label='Remove', id = wx.ID_REMOVE)
+        self.button_del.Enable (False)
+        self.toolbar.Add (self.button_del)
+        self.panel.Bind (wx.EVT_BUTTON, self.OnDelete, self.button_del)
+        
         self.toolbar_panel.SetSizer (self.toolbar)
         
         self.Add (self.toolbar_panel, flag = wx.ALIGN_TOP)
@@ -570,7 +610,12 @@ class MainColumn (wx.BoxSizer):
         
         self.tree.Expand (menudev)
     
+    def OnDelete (self, evt):
+        
+        self.tree.selection_context.OnDeleteButton (evt)
+    
     def OnNewMasterStart (self, evt):
+        
         self.newname_panel.showNewMasterName ()
         
     def OnNewMasterEnter (self, evt):
@@ -591,7 +636,11 @@ class MainColumn (wx.BoxSizer):
         
         self.tree.Delete (source_device)
         
-        new_menuitem = self.tree.AppendItem (target_menuitem, source_device.name)
+        text = source_device.name
+        if source_device.parent != target_device:
+            text += ' (move pending)'
+        
+        new_menuitem = self.tree.AppendItem (target_menuitem, text)
         self.tree.SetItemText (new_menuitem, str(source_device.self_id), 1)
         self.tree.SetItemPyData (new_menuitem, source_device)
         self.tree.Expand (target_menuitem)
@@ -646,7 +695,7 @@ class UI (wx.Frame):
     
     def __init__(self, parent, title):
     
-        super(UI, self).__init__(parent, title = title, size = (320, 500))
+        super(UI, self).__init__(parent, title = title, size = (400, 500))
         
         self.SetMinSize ((260, 150))
         
