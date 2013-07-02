@@ -46,6 +46,10 @@ The "refresh" button will discard all pending changes and reload the list of
 devices. If you plug in a new input device, you'll have to hit "refresh" or it
 won't show up.
 
+If a master pointer is selected, the "remove" button will detach all physical 
+devices from it and mark it for deletion. If a physical device is selected,
+the "remove" button will detach it.
+
 Notes
 -----
 
