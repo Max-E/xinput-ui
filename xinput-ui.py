@@ -427,6 +427,54 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
             else:
                 self.PopupMenu (AttachedSlaveContext (self.window, target_device, targetparent_device))
 
+class NewMasterBar (wx.Panel):
+    
+    def __init__ (self, parent):
+        
+        self.parent = parent
+        
+        super (NewMasterBar, self).__init__(parent.panel)
+        
+        self.sizer = wx.BoxSizer (wx.HORIZONTAL)
+        
+        self.label = wx.StaticText (self, label = "Name:")
+        self.sizer.Add (self.label, flag = wx.ALIGN_CENTER)
+        
+        self.input = wx.TextCtrl (self, style = wx.TE_PROCESS_ENTER)
+        self.sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
+        self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterEnter, self.input)
+        
+        self.button_confirm_name = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
+        self.sizer.Add (self.button_confirm_name, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterEnter, self.button_confirm_name)
+        
+        self.button_cancel_name = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
+        self.sizer.Add (self.button_cancel_name, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.OnNewMasterCancel, self.button_cancel_name)
+        
+        self.SetSizer (self.sizer)
+    
+    def showNewMasterName (self):
+    
+        self.parent.Show (self, True, True)
+        
+        self.input.SetValue ("New Pointer")
+        self.input.SetSelection (0, -1)
+        self.input.SetFocus()
+        
+        self.parent.Layout ()
+    
+    def hideNewMasterName (self):
+    
+        self.parent.Show (self, False, True)
+        self.parent.Layout ()
+    
+    def OnNewMasterCancel (self, evt):
+        self.hideNewMasterName ()
+    
+    def GetValue (self):
+        return self.input.GetValue ()
+
 class MainColumn (wx.BoxSizer):
     
     def __init__ (self, UI, panel):
@@ -480,44 +528,11 @@ class MainColumn (wx.BoxSizer):
     
     def initNewMasterName (self):
         
-        self.newname_panel = wx.Panel (self.panel)
-        self.newname_bar = wx.BoxSizer (wx.HORIZONTAL)
-        
-        self.newname_label = wx.StaticText (self.newname_panel, label = "Name:")
-        self.newname_bar.Add (self.newname_label, flag = wx.ALIGN_CENTER)
-        
-        self.newname_input = wx.TextCtrl (self.newname_panel, style = wx.TE_PROCESS_ENTER)
-        self.newname_bar.Add (self.newname_input, flag = wx.EXPAND, proportion = 1)
-        self.panel.Bind (wx.EVT_TEXT_ENTER, self.OnNewMasterEnter, self.newname_input)
-        
-        self.button_confirm_name = wx.Button (self.newname_panel, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
-        self.newname_bar.Add (self.button_confirm_name, flag = wx.ALIGN_RIGHT)
-        self.panel.Bind (wx.EVT_BUTTON, self.OnNewMasterEnter, self.button_confirm_name)
-        
-        self.button_cancel_name = wx.Button (self.newname_panel, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
-        self.newname_bar.Add (self.button_cancel_name, flag = wx.ALIGN_RIGHT)
-        self.panel.Bind (wx.EVT_BUTTON, self.OnNewMasterCancel, self.button_cancel_name)
-        
-        self.newname_panel.SetSizer (self.newname_bar)
+        self.newname_panel = NewMasterBar (self)
         
         self.Add (self.newname_panel, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
         self.Show (self.newname_panel, False, True)
         
-    def showNewMasterName (self):
-    
-        self.Show (self.newname_panel, True, True)
-        
-        self.newname_input.SetValue ("New Pointer")
-        self.newname_input.SetSelection (0, -1)
-        self.newname_input.SetFocus()
-        
-        self.Layout ()
-    
-    def hideNewMasterName (self):
-    
-        self.Show (self.newname_panel, False, True)
-        self.Layout ()
-    
     def initTree (self):
     
         self.treepanel = wx.Panel (self.splitter)
@@ -569,12 +584,12 @@ class MainColumn (wx.BoxSizer):
         self.tree.Expand (menudev)
     
     def OnNewMasterStart (self, evt):
-        self.showNewMasterName ()
-    
+        self.newname_panel.showNewMasterName ()
+        
     def OnNewMasterEnter (self, evt):
         
-        newdevice = PendingDevice (self.newname_input.GetValue ())
-        self.hideNewMasterName ()
+        newdevice = PendingDevice (self.newname_panel.GetValue ())
+        self.newname_panel.hideNewMasterName ()
         
         self.all_creations.add (newdevice)
         
@@ -582,9 +597,6 @@ class MainColumn (wx.BoxSizer):
         self.tree.SetItemPyData (menudev, newdevice)
         
         self.RefreshCommandList ()
-    
-    def OnNewMasterCancel (self, evt):
-        self.hideNewMasterName ()
     
     def MoveDevice (self, source_device, target_device):
         
