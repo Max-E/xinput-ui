@@ -306,15 +306,15 @@ class PendingMasterContext(wx.Menu):
 
 class DeviceTree (wx.gizmos.TreeListCtrl):
     
-    def __init__ (self, window, panel, *args, **kwargs):
+    def __init__ (self, window, parent):
         
         self.window = window
-        self.panel = panel
+        self.panel = wx.Panel (parent)
         
         self.label = wx.StaticBox (self.panel, label = "Devices:")
         self.sizer = wx.StaticBoxSizer (self.label, wx.VERTICAL)
         
-        super (DeviceTree, self).__init__(panel, *args, **kwargs)
+        super (DeviceTree, self).__init__(self.panel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
         
         self.AddColumn ("Name", 350)
         self.AddColumn ("ID", 30)
@@ -355,6 +355,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
     
     def Delete (self, it, *args, **kwargs):
         
+        # So "it" can be a menu item or a device object
         if it in self.all_devices:
             it = self.all_devices[it]
         
@@ -518,6 +519,25 @@ class NewMasterBar (wx.Panel):
     def GetValue (self):
         return self.input.GetValue ()
 
+# Used for tracking and displaying the "xinput" commands that will apply
+# whatever changes are pending.
+class CommandList (wx.ListCtrl):
+    
+    def __init__ (self, parent):
+        
+        self.panel = wx.Panel (parent)
+        
+        self.label = wx.StaticBox (self.panel, label = "Pending Commands:")
+        self.panelsizer = wx.StaticBoxSizer (self.label, wx.VERTICAL)
+        
+        super (CommandList, self).__init__(self.panel, style = wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_NO_HEADER)
+        self.InsertColumn (0, "Commands", width = 250)
+        self.panelsizer.Add (self, flag = wx.EXPAND, proportion = 1)
+        
+        self.panel.SetMinSize ((-1, 50))
+        
+        self.panel.SetSizer (self.panelsizer)
+
 # FIXME god object
 class MainColumn (wx.BoxSizer):
     
@@ -533,10 +553,10 @@ class MainColumn (wx.BoxSizer):
         
         self.splitter = wx.SplitterWindow (self.panel, -1)
         
-        self.initTree ()
-        self.initCmdList ()
+        self.cmdlist = CommandList (self.splitter)
+        self.tree = DeviceTree (self, self.splitter)
         
-        self.splitter.SplitHorizontally (self.treepanel, self.cmdlistpanel)
+        self.splitter.SplitHorizontally (self.tree.panel, self.cmdlist.panel)
         self.splitter.SetSashGravity (1.0)
         self.splitter.SetSashPosition (-100)
         
@@ -581,24 +601,6 @@ class MainColumn (wx.BoxSizer):
         
         self.Add (self.newname_panel, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
         self.newname_panel.hideNewMasterName ()
-        
-    def initTree (self):
-    
-        self.treepanel = wx.Panel (self.splitter)
-        self.tree = DeviceTree (self, self.treepanel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
-    
-    def initCmdList (self):
-        self.cmdlistpanel = wx.Panel (self.splitter)
-        self.cmdlistlabel = wx.StaticBox (self.cmdlistpanel, label = "Pending Commands:")
-        self.cmdlistpanelsizer = wx.StaticBoxSizer (self.cmdlistlabel, wx.VERTICAL)
-        
-        self.cmdlist = wx.ListCtrl (self.cmdlistpanel, style = wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_NO_HEADER)
-        self.cmdlist.InsertColumn (0, "Commands", width = 250)
-        self.cmdlistpanelsizer.Add (self.cmdlist, flag = wx.EXPAND, proportion = 1)
-        
-        self.cmdlistpanel.SetMinSize ((-1, 50))
-        
-        self.cmdlistpanel.SetSizer (self.cmdlistpanelsizer)
         
     def clearTree (self):
         self.all_moves = {}
