@@ -72,8 +72,7 @@ class MasterDevice:
                     uniquely identify the device.
     children    --  A set of SlaveDevice objects corresponding to the physical
                     input hardware devices that are CURRENTLY slaved to the
-                    pair. A SlaveDevice's parent attribute may be different
-                    if the slave device has been moved to a different pair!
+                    pair. 
     
     FLOATING_ID is used on only one instance of MasterDevice. This special
     instance doesn't correspond to a pointer/keyboard pair that actually
@@ -110,11 +109,8 @@ class SlaveDevice: # real physical hardware device
     Attributes:
     name    --  A string used for display purposes.
     self_id --  A numeric ID assigned by the X server.
-    parent  --  A MasterDevice object. Does NOT represent the master pointer/
-                keyboard pair this device is currently slaved to, but rather
-                the pair that this device WILL be slaved to after pending 
-                changes are applied. If this device hasn't been moved, these
-                may be the same, but it's important to make the distinction.
+    parent  --  The MasterDevice object that this device is CURRENTLY slaved 
+                to in the X server. 
     
     """
     
@@ -340,9 +336,6 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
             target_device = target_device.parent
         
         moved_device = self.GetItemPyData(moved_menuitem)
-        
-        if moved_device.parent == target_device:
-            return # didn't actually move it anywhere different
         
         # Generate the pending commands for this action
         self.window.cmdlist.MoveDeviceCmd (moved_device, target_device)
