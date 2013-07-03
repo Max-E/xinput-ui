@@ -167,7 +167,7 @@ class FloatingSlaveContext(wx.Menu):
             self.AppendItem (self.undo_detach)
             self.Bind(wx.EVT_MENU, self.OnUndoDetach, self.undo_detach)
     
-    def OnUndoDetach (self, evt):
+    def OnUndoDetach (self, _):
         
         self.window.MoveDevice (self.device, self.device.parent)
 
@@ -191,11 +191,11 @@ class AttachedSlaveContext(wx.Menu):
             self.AppendItem (self.detach)
             self.Bind(wx.EVT_MENU, self.OnDetach, self.detach)
     
-    def OnUndoMove (self, evt):
+    def OnUndoMove (self, _):
         
         self.window.MoveDevice (self.device, self.device.parent)
     
-    def OnDetach (self, evt):
+    def OnDetach (self, _):
         
         target_device = self.window.UI.master_devices[FLOATING_ID]
         self.window.MoveDevice (self.device, target_device)
@@ -232,12 +232,12 @@ class MasterDeviceContext(wx.Menu):
         self.AppendItem (self.detach_all)
         self.Bind (wx.EVT_MENU, self.OnDetachAll, self.detach_all)
     
-    def OnDetachAll (self, evt):
+    def OnDetachAll (self, _):
         
         target_device = self.window.UI.master_devices[FLOATING_ID]
         
         while self.window.tree.ItemHasChildren (self.device_menuitem):
-            child_menuitem, unused_cookie = self.window.tree.GetFirstChild(self.device_menuitem)
+            child_menuitem, _ = self.window.tree.GetFirstChild(self.device_menuitem)
             child_device = self.window.tree.GetItemPyData(child_menuitem)
             self.window.MoveDevice (child_device, target_device)
     
@@ -255,7 +255,7 @@ class MasterDeviceContext(wx.Menu):
         
         self.OnDelete (evt)
     
-    def OnReset (self, evt):
+    def OnReset (self, _):
         
         # First undo any devices that have been moved to this master 
         
@@ -263,7 +263,7 @@ class MasterDeviceContext(wx.Menu):
         
         nc = self.window.tree.GetChildrenCount(self.device_menuitem, 0)
         child_menuitem, cookie = self.window.tree.GetFirstChild(self.device_menuitem)
-        for i in xrange(nc):
+        for _ in xrange(nc):
             child_device = self.window.tree.GetItemPyData(child_menuitem)
             if child_device.parent != self.device:
                 children_to_move.add (child_device)
@@ -277,7 +277,7 @@ class MasterDeviceContext(wx.Menu):
         for child_device in self.device.children:
             self.window.MoveDevice (child_device, self.device)
     
-    def OnUndoDelete (self, evt):
+    def OnUndoDelete (self, _):
         
         self.window.all_deletions.remove (self.device)
         self.window.tree.SetItemText (self.device_menuitem, self.device.name)
@@ -297,7 +297,7 @@ class PendingMasterContext(wx.Menu):
         self.AppendItem (self.cancel)
         self.Bind (wx.EVT_MENU, self.OnCancel, self.cancel)
         
-    def OnCancel (self, evt):
+    def OnCancel (self, _):
         
         self.window.all_creations.remove (self.device)
         self.window.tree.Delete (self.device)
@@ -544,7 +544,7 @@ class NewMasterBar (wx.Panel):
         self.parent.Show (self, False, True)
         self.parent.Layout ()
     
-    def OnCancel (self, evt):
+    def OnCancel (self, _):
         self.Hide ()
     
     def GetValue (self):
@@ -615,11 +615,11 @@ class MainColumn (wx.BoxSizer):
         
         self.tree.selection_context.OnDeleteButton (evt)
     
-    def OnNewMasterStart (self, evt):
+    def OnNewMasterStart (self, _):
         
         self.createmaster_panel.Show ()
         
-    def OnNewMasterDone (self, evt):
+    def OnNewMasterDone (self, _):
         
         newdevice = PendingDevice (self.createmaster_panel.GetValue ())
         self.createmaster_panel.Hide ()
@@ -717,7 +717,7 @@ class UI (wx.Frame):
         # make sure the floating devices list comes last
         self.vbox.tree.addMaster (self.master_devices[FLOATING_ID])
     
-    def refreshDevices (self, evt):
+    def refreshDevices (self, _):
         if len (self.vbox.all_commands):
             confirm = wx.MessageDialog (self,
                     'You still have pending changes! These will be lost if '+
