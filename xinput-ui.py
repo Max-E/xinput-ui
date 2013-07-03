@@ -267,7 +267,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         target_device = self.GetItemPyData(target)
         
-        if target_device != None and target_device.self_id != FLOATING_ID:
+        if target_device != None:
             self.selection_context = ctx_menu = wx.Menu ()
             self.window.cmdlist.MakeUndoMenuItem (ctx_menu, target_device)
             self.delete_callback = self.window.cmdlist.MakeDeleteMenuItem (ctx_menu, target_device)
@@ -495,11 +495,16 @@ class CommandList (wx.ListCtrl):
         
         self.all_creations.add (new_device)
         self.Regenerate ()
+        
+        menudev = self.window.tree.AppendItem (self.window.tree.root, new_device.name+' (pending)' )
+        self.window.tree.SetItemPyData (menudev, new_device)
     
     def UndoCreateDeviceCmd (self, device):
         
         self.all_creations.remove (device)
         self.Regenerate ()
+        
+        self.window.tree.Delete (device)
     
     def DetachAllSlavesFromDeviceCmd (self, device):
         
@@ -593,7 +598,7 @@ class CommandList (wx.ListCtrl):
         text = None
         action = None
         
-        if device.self_id == FLOATING_ID or device in self.all_deletions or device in self.all_creations:
+        if device in self.all_deletions or device in self.all_creations or device.self_id == FLOATING_ID:
             return None
         
         elif device in self.window.UI.master_devices.values():
@@ -619,8 +624,9 @@ class CommandList (wx.ListCtrl):
     def MakeMasterDeviceMenuItems (self, menu, device):
         
         if      device not in self.window.UI.master_devices.values() or \
-                device.self_id == FLOATING_ID or \
-                device in self.all_creations or device in self.all_deletions:
+                device in self.all_creations or \
+                device in self.all_deletions or \
+                device.self_id == FLOATING_ID:
             return
         
         reset_action = lambda _: self.ResetAllSlavesOfDeviceCmd (device)
@@ -682,10 +688,7 @@ class MainColumn (wx.BoxSizer):
         self.createmaster_toolbar.Hide ()
         
         self.cmdlist.CreateDeviceCmd (newdevice)
-        
-        menudev = self.tree.AppendItem (self.tree.root, newdevice.name+' (pending)' )
-        self.tree.SetItemPyData (menudev, newdevice)
-    
+
 class UI (wx.Frame):
     
     def __init__(self, parent, title):
