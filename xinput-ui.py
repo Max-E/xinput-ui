@@ -154,24 +154,23 @@ def get_device_status ():
 
 class DeviceTree (wx.gizmos.TreeListCtrl):
     
-    def __init__ (self, window, parent):
+    def __init__ (self, window, panel):
         
         self.window = window
-        self.panel = wx.Panel (parent)
         
-        self.label = wx.StaticBox (self.panel, label = "Devices:")
-        self.sizer = wx.StaticBoxSizer (self.label, wx.VERTICAL)
+        label = wx.StaticBox (panel, label = "Devices:")
+        sizer = wx.StaticBoxSizer (label, wx.VERTICAL)
         
-        super (DeviceTree, self).__init__(self.panel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
+        super (DeviceTree, self).__init__(panel, style = wx.TR_HIDE_ROOT | wx.TR_DEFAULT_STYLE | wx.SUNKEN_BORDER)
         
         self.AddColumn ("Name", 350)
         self.AddColumn ("ID", 30)
         self.root = self.AddRoot ("Pointers")
-        self.sizer.Add(self, flag = wx.EXPAND, proportion = 1)
+        sizer.Add(self, flag = wx.EXPAND, proportion = 1)
         
-        self.panel.SetMinSize ((-1, 75))
+        panel.SetMinSize ((-1, 75))
         
-        self.panel.SetSizer (self.sizer)
+        panel.SetSizer (sizer)
         
         self.Bind (wx.EVT_TREE_BEGIN_DRAG, self.OnBeginDrag)
         self.Bind (wx.EVT_TREE_END_DRAG, self.OnEndDrag)
@@ -292,63 +291,61 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
 # The main tooolbar.
 class MainBar (wx.Panel):
     
-    def __init__ (self, parent):
+    def __init__ (self, parent, panel):
         
-        self.parent = parent
+        super (MainBar, self).__init__(panel)
         
-        super (MainBar, self).__init__(parent.panel)
-        
-        self.sizer = wx.BoxSizer (wx.HORIZONTAL)
+        sizer = wx.BoxSizer (wx.HORIZONTAL)
         
         self.button_refresh = wx.Button (self, label='Refresh', id = wx.ID_REFRESH)
-        self.sizer.Add (self.button_refresh)
-        self.Bind (wx.EVT_BUTTON, self.parent.UI.refreshDevices, self.button_refresh)
+        sizer.Add (self.button_refresh)
+        self.Bind (wx.EVT_BUTTON, parent.UI.refreshDevices, self.button_refresh)
         
         self.button_apply = wx.Button (self, label='Apply', id = wx.ID_APPLY)
         self.button_apply.Enable (False)
-        self.sizer.Add (self.button_apply)
-        self.Bind (wx.EVT_BUTTON, self.parent.cmdlist.Run, self.button_apply)
+        sizer.Add (self.button_apply)
+        self.Bind (wx.EVT_BUTTON, parent.cmdlist.Run, self.button_apply)
         
         self.button_new = wx.Button (self, label='Add', id = wx.ID_ADD)
-        self.sizer.Add (self.button_new)
-        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterStart, self.button_new)
+        sizer.Add (self.button_new)
+        self.Bind (wx.EVT_BUTTON, parent.OnNewMasterStart, self.button_new)
         
         self.button_del = wx.Button (self, label='Remove', id = wx.ID_REMOVE)
         self.button_del.Enable (False)
-        self.sizer.Add (self.button_del)
-        self.Bind (wx.EVT_BUTTON, self.parent.OnDelete, self.button_del)
+        sizer.Add (self.button_del)
+        self.Bind (wx.EVT_BUTTON, parent.OnDelete, self.button_del)
         
-        self.SetSizer (self.sizer)
+        self.SetSizer (sizer)
 
 # The toolbar that appears when you click on "Add." It has a text field for
 # editing the name of the master pointer to create, as well as "OK" and 
 # "Cancel" buttons.
 class NewMasterBar (wx.Panel):
     
-    def __init__ (self, parent):
+    def __init__ (self, parent, panel):
         
         self.parent = parent
         
-        super (NewMasterBar, self).__init__(parent.panel)
+        super (NewMasterBar, self).__init__(panel)
         
-        self.sizer = wx.BoxSizer (wx.HORIZONTAL)
+        sizer = wx.BoxSizer (wx.HORIZONTAL)
         
-        self.label = wx.StaticText (self, label = "Name:")
-        self.sizer.Add (self.label, flag = wx.ALIGN_CENTER)
+        label = wx.StaticText (self, label = "Name:")
+        sizer.Add (label, flag = wx.ALIGN_CENTER)
         
         self.input = wx.TextCtrl (self, style = wx.TE_PROCESS_ENTER)
-        self.sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
+        sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
         self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterDone, self.input)
         
         self.button_confirm = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
-        self.sizer.Add (self.button_confirm, flag = wx.ALIGN_RIGHT)
+        sizer.Add (self.button_confirm, flag = wx.ALIGN_RIGHT)
         self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterDone, self.button_confirm)
         
         self.button_cancel = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
-        self.sizer.Add (self.button_cancel, flag = wx.ALIGN_RIGHT)
+        sizer.Add (self.button_cancel, flag = wx.ALIGN_RIGHT)
         self.Bind (wx.EVT_BUTTON, self.OnCancel, self.button_cancel)
         
-        self.SetSizer (self.sizer)
+        self.SetSizer (sizer)
     
     def Show (self):
     
@@ -376,7 +373,9 @@ class NewMasterBar (wx.Panel):
 # changes. In other words, this is pretty much where the magic happens.
 class CommandList (wx.ListCtrl):
     
-    def __init__ (self, window, parent):
+    def __init__ (self, window, panel):
+        
+        self.window = window
         
         # used for categorizing different types of commands
         
@@ -386,19 +385,16 @@ class CommandList (wx.ListCtrl):
         
         # set up the GUI command list preview widget
         
-        self.window = window
-        self.panel = wx.Panel (parent)
+        label = wx.StaticBox (panel, label = "Pending Commands:")
+        sizer = wx.StaticBoxSizer (label, wx.VERTICAL)
         
-        self.label = wx.StaticBox (self.panel, label = "Pending Commands:")
-        self.panelsizer = wx.StaticBoxSizer (self.label, wx.VERTICAL)
-        
-        super (CommandList, self).__init__(self.panel, style = wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_NO_HEADER)
+        super (CommandList, self).__init__(panel, style = wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_NO_HEADER)
         self.InsertColumn (0, "Commands", width = 250)
-        self.panelsizer.Add (self, flag = wx.EXPAND, proportion = 1)
+        sizer.Add (self, flag = wx.EXPAND, proportion = 1)
         
-        self.panel.SetMinSize ((-1, 50))
+        panel.SetMinSize ((-1, 50))
         
-        self.panel.SetSizer (self.panelsizer)
+        panel.SetSizer (sizer)
         
         # set up the list of commands we will actually execute
         
@@ -639,32 +635,34 @@ class CommandList (wx.ListCtrl):
 
 class MainColumn (wx.BoxSizer):
     
-    def __init__ (self, UI, panel):
+    def __init__ (self, UI):
         
-        self.panel = panel
         self.UI = UI
+        
+        panel = wx.Panel (self.UI)
         
         super (MainColumn, self).__init__(wx.VERTICAL)
         
-        self.splitter = wx.SplitterWindow (self.panel, -1)
+        splitter = wx.SplitterWindow (panel, -1)
         
-        self.cmdlist = CommandList (self, self.splitter)
-        self.tree = DeviceTree (self, self.splitter)
+        cmdpanel = wx.Panel (splitter)
+        self.cmdlist = CommandList (self, cmdpanel)
+        treepanel = wx.Panel (splitter)
+        self.tree = DeviceTree (self, treepanel)
         
-        self.toolbar = MainBar (self)
+        splitter.SplitHorizontally (treepanel, cmdpanel)
+        splitter.SetSashGravity (1.0)
+        splitter.SetSashPosition (-100)
+        
+        self.toolbar = MainBar (self, panel)
+        self.createmaster_toolbar = NewMasterBar (self, panel)
+        
         self.Add (self.toolbar, flag = wx.ALIGN_TOP)
+        self.Add (self.createmaster_toolbar, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
+        self.createmaster_toolbar.Hide ()
+        self.Add (splitter, flag = wx.EXPAND, proportion = 1)
         
-        self.createmaster_panel = NewMasterBar (self)
-        self.Add (self.createmaster_panel, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
-        self.createmaster_panel.Hide ()
-        
-        self.splitter.SplitHorizontally (self.tree.panel, self.cmdlist.panel)
-        self.splitter.SetSashGravity (1.0)
-        self.splitter.SetSashPosition (-100)
-        
-        self.Add (self.splitter, flag = wx.EXPAND, proportion = 1)
-        
-        self.panel.SetSizer (self)
+        panel.SetSizer (self)
         
     def clearTree (self):
         self.tree.DeleteAllItems ()
@@ -676,12 +674,12 @@ class MainColumn (wx.BoxSizer):
     
     def OnNewMasterStart (self, _):
         
-        self.createmaster_panel.Show ()
+        self.createmaster_toolbar.Show ()
         
     def OnNewMasterDone (self, _):
         
-        newdevice = PendingDevice (self.createmaster_panel.GetValue ())
-        self.createmaster_panel.Hide ()
+        newdevice = PendingDevice (self.createmaster_toolbar.GetValue ())
+        self.createmaster_toolbar.Hide ()
         
         self.cmdlist.CreateDeviceCmd (newdevice)
         
@@ -696,8 +694,7 @@ class UI (wx.Frame):
         
         self.SetMinSize ((340, 150))
         
-        self.panel = wx.Panel (self)
-        self.vbox = MainColumn (self, self.panel)
+        self.vbox = MainColumn (self)
         
         self.master_devices = get_device_status()
         
