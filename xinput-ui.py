@@ -430,7 +430,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
             target = evt.GetItem ()
         else:
             self.selection_context = None
-            self.window.button_del.Enable (False)
+            self.window.toolbar.button_del.Enable (False)
             return
         
         target_device = self.GetItemPyData(target)
@@ -452,9 +452,9 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
                 self.selection_context = AttachedSlaveContext (self.window, target_device, targetparent_device)
         
         if target_device == None or targetparent_device.self_id == FLOATING_ID:
-            self.window.button_del.Enable (False)
+            self.window.toolbar.button_del.Enable (False)
         else:
-            self.window.button_del.Enable (True)
+            self.window.toolbar.button_del.Enable (True)
         
     def OnRightClick (self, evt):
         
@@ -467,6 +467,37 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         if self.selection_context != None:
             self.PopupMenu (self.selection_context)
+
+# The main tooolbar.
+class MainBar (wx.Panel):
+    
+    def __init__ (self, parent):
+        
+        self.parent = parent
+        
+        super (MainBar, self).__init__(parent.panel)
+        
+        self.sizer = wx.BoxSizer (wx.HORIZONTAL)
+        
+        self.button_refresh = wx.Button (self, label='Refresh', id = wx.ID_REFRESH)
+        self.sizer.Add (self.button_refresh)
+        self.Bind (wx.EVT_BUTTON, self.parent.UI.refreshDevices, self.button_refresh)
+        
+        self.button_apply = wx.Button (self, label='Apply', id = wx.ID_APPLY)
+        self.button_apply.Enable (False)
+        self.sizer.Add (self.button_apply)
+        self.Bind (wx.EVT_BUTTON, self.parent.RunCommands, self.button_apply)
+        
+        self.button_new = wx.Button (self, label='Add', id = wx.ID_ADD)
+        self.sizer.Add (self.button_new)
+        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterStart, self.button_new)
+        
+        self.button_del = wx.Button (self, label='Remove', id = wx.ID_REMOVE)
+        self.button_del.Enable (False)
+        self.sizer.Add (self.button_del)
+        self.Bind (wx.EVT_BUTTON, self.parent.OnDelete, self.button_del)
+        
+        self.SetSizer (self.sizer)
 
 # The toolbar that appears when you click on "Add." It has a text field for
 # editing the name of the master pointer to create, as well as "OK" and 
@@ -486,19 +517,19 @@ class NewMasterBar (wx.Panel):
         
         self.input = wx.TextCtrl (self, style = wx.TE_PROCESS_ENTER)
         self.sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
-        self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterEnter, self.input)
+        self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterDone, self.input)
         
-        self.button_confirm_name = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
-        self.sizer.Add (self.button_confirm_name, flag = wx.ALIGN_RIGHT)
-        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterEnter, self.button_confirm_name)
+        self.button_confirm = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
+        self.sizer.Add (self.button_confirm, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterDone, self.button_confirm)
         
-        self.button_cancel_name = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
-        self.sizer.Add (self.button_cancel_name, flag = wx.ALIGN_RIGHT)
-        self.Bind (wx.EVT_BUTTON, self.OnNewMasterCancel, self.button_cancel_name)
+        self.button_cancel = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
+        self.sizer.Add (self.button_cancel, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.OnCancel, self.button_cancel)
         
         self.SetSizer (self.sizer)
     
-    def showNewMasterName (self):
+    def Show (self):
     
         self.parent.Show (self, True, True)
         
@@ -508,13 +539,13 @@ class NewMasterBar (wx.Panel):
         
         self.parent.Layout ()
     
-    def hideNewMasterName (self):
+    def Hide (self):
     
         self.parent.Show (self, False, True)
         self.parent.Layout ()
     
-    def OnNewMasterCancel (self, evt):
-        self.hideNewMasterName ()
+    def OnCancel (self, evt):
+        self.Hide ()
     
     def GetValue (self):
         return self.input.GetValue ()
@@ -548,8 +579,12 @@ class MainColumn (wx.BoxSizer):
         
         super (MainColumn, self).__init__(wx.VERTICAL)
         
-        self.initToolbar ()
-        self.initNewMasterName ()
+        self.toolbar = MainBar (self)
+        self.Add (self.toolbar, flag = wx.ALIGN_TOP)
+        
+        self.createmaster_panel = NewMasterBar (self)
+        self.Add (self.createmaster_panel, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
+        self.createmaster_panel.Hide ()
         
         self.splitter = wx.SplitterWindow (self.panel, -1)
         
@@ -569,39 +604,6 @@ class MainColumn (wx.BoxSizer):
         self.all_creations = set()
         self.all_commands = []
     
-    def initToolbar (self):
-        
-        self.toolbar_panel = wx.Panel (self.panel)
-        self.toolbar = wx.BoxSizer (wx.HORIZONTAL)
-        
-        self.button_refresh = wx.Button (self.toolbar_panel, label='Refresh', id = wx.ID_REFRESH)
-        self.toolbar.Add (self.button_refresh)
-        
-        self.button_apply = wx.Button (self.toolbar_panel, label='Apply', id = wx.ID_APPLY)
-        self.button_apply.Enable (False)
-        self.toolbar.Add (self.button_apply)
-        self.panel.Bind (wx.EVT_BUTTON, self.RunCommands, self.button_apply)
-        
-        self.button_new = wx.Button (self.toolbar_panel, label='Add', id = wx.ID_ADD)
-        self.toolbar.Add (self.button_new)
-        self.panel.Bind (wx.EVT_BUTTON, self.OnNewMasterStart, self.button_new)
-        
-        self.button_del = wx.Button (self.toolbar_panel, label='Remove', id = wx.ID_REMOVE)
-        self.button_del.Enable (False)
-        self.toolbar.Add (self.button_del)
-        self.panel.Bind (wx.EVT_BUTTON, self.OnDelete, self.button_del)
-        
-        self.toolbar_panel.SetSizer (self.toolbar)
-        
-        self.Add (self.toolbar_panel, flag = wx.ALIGN_TOP)
-    
-    def initNewMasterName (self):
-        
-        self.newname_panel = NewMasterBar (self)
-        
-        self.Add (self.newname_panel, proportion = 0, flag = wx.ALIGN_TOP | wx.EXPAND)
-        self.newname_panel.hideNewMasterName ()
-        
     def clearTree (self):
         self.all_moves = {}
         self.all_deletions = set()
@@ -615,12 +617,12 @@ class MainColumn (wx.BoxSizer):
     
     def OnNewMasterStart (self, evt):
         
-        self.newname_panel.showNewMasterName ()
+        self.createmaster_panel.Show ()
         
-    def OnNewMasterEnter (self, evt):
+    def OnNewMasterDone (self, evt):
         
-        newdevice = PendingDevice (self.newname_panel.GetValue ())
-        self.newname_panel.hideNewMasterName ()
+        newdevice = PendingDevice (self.createmaster_panel.GetValue ())
+        self.createmaster_panel.Hide ()
         
         self.all_creations.add (newdevice)
         
@@ -661,9 +663,9 @@ class MainColumn (wx.BoxSizer):
         self.all_commands = []
         
         if len(self.all_moves) + len(self.all_deletions) + len(self.all_creations):
-            self.button_apply.Enable (True)
+            self.toolbar.button_apply.Enable (True)
         else:
-            self.button_apply.Enable (False)
+            self.toolbar.button_apply.Enable (False)
             return
         
         for source, dest in self.all_moves.iteritems():
@@ -687,8 +689,7 @@ class MainColumn (wx.BoxSizer):
         
         self.all_commands = []
         
-        evt = wx.CommandEvent(wx.wxEVT_COMMAND_BUTTON_CLICKED, self.button_refresh.GetId())
-        wx.PostEvent(self.button_refresh, evt)
+        self.UI.refreshDevices (evt)
 
 class UI (wx.Frame):
     
@@ -700,8 +701,6 @@ class UI (wx.Frame):
         
         self.panel = wx.Panel (self)
         self.vbox = MainColumn (self, self.panel)
-        
-        self.Bind (wx.EVT_BUTTON, self.refreshDevices, self.vbox.button_refresh)
         
         self.master_devices = get_device_status()
         
