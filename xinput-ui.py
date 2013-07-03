@@ -268,7 +268,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         target_device = self.GetItemPyData(target)
         
-        if target_device == None:
+        if target_device != None:
             self.selection_context = ctx_menu = wx.Menu ()
             self.window.cmdlist.MakeUndoMenuItem (ctx_menu, target_device)
             self.delete_callback = self.window.cmdlist.MakeDeleteMenuItem (ctx_menu, target_device)
