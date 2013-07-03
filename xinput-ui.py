@@ -45,17 +45,42 @@ def run_command (command):
                          stderr=subprocess.STDOUT)
     return iter(p.stdout.readline, b'')
 
-# Strip all the extra Unicode characters "xinput list" likes to output
 def mystrip (string):
+    """Strip the extra Unicode characters "xinput list" likes to output."""
     str_special = '\xe2\x8e\xa1\xe2\x8e\x9c\xe2\x86\xb3\xe2\x8e\xa3\x88\xbc'
     return string.strip(str_whitespace+str_special)
 
 def device_sort (device_set):
+    """Sort a set of devices by self_id. Can't be used with PendingDevices!"""
     return sorted(device_set, key = operator.attrgetter ('self_id'))
 
 # These device classes must all have a public "name" attribute
 
-class MasterDevice: # virtual device
+class MasterDevice:
+    
+    """A master pointer/keyboard pair that exists in the X server.
+    
+    Attributes:
+    name        --  A string used for display purposes.
+    pointer_id  --  The numeric ID of the master pointer of the pair.
+                    This is either a value assigned by the X server, or the
+                    special value FLOATING_ID.
+    keyboard_id --  The numeric ID of the master keyboard of the pair.
+                    This is either a value assigned by X server, or the
+                    special value FLOATING_ID.
+    self_id     --  Always the same as pointer_id. This is what is used to 
+                    uniquely identify the device.
+    children    --  A set of SlaveDevice objects corresponding to the physical
+                    input hardware devices that are CURRENTLY slaved to the
+                    pair. A SlaveDevice's parent attribute may be different
+                    if the slave device has been moved to a different pair!
+    
+    FLOATING_ID is used on only one instance of MasterDevice. This special
+    instance doesn't correspond to a pointer/keyboard pair that actually
+    exits, but is rather used to group all the "floating" (un-slaved) hardware
+    input devices together.
+    
+    """
     
     def __init__ (self, name):
         self.name = name
@@ -63,19 +88,35 @@ class MasterDevice: # virtual device
         self.self_id = self.pointer_id = self.keyboard_id = INVALID_ID
     
     def set_pointer_id (self, pointer_id):
+        """MUST be called before any devices are slaved!"""
         self.pointer_id = pointer_id
         self.self_id = pointer_id # for device_sort
     
     def set_keyboard_id (self, keyboard_id):
+        """MUST be called before any devices are slaved!"""
         self.keyboard_id = keyboard_id
     
     def add_slave (self, slave_id, slave_name):
+        """Creates a SlaveDevice."""
         assert self.self_id != INVALID_ID
         assert self.pointer_id != INVALID_ID
         assert self.keyboard_id != INVALID_ID
         self.children.add (SlaveDevice (self, slave_id, slave_name))
 
 class SlaveDevice: # real physical hardware device
+    
+    """A slave (physical hardware) input device connected to the computer.
+    
+    Attributes:
+    name    --  A string used for display purposes.
+    self_id --  A numeric ID assigned by the X server.
+    parent  --  A MasterDevice object. Does NOT represent the master pointer/
+                keyboard pair this device is currently slaved to, but rather
+                the pair that this device WILL be slaved to after pending 
+                changes are applied. If this device hasn't been moved, these
+                may be the same, but it's important to make the distinction.
+    
+    """
     
     def __init__ (self, parent, self_id, name):
         self.self_id = self_id
@@ -84,11 +125,25 @@ class SlaveDevice: # real physical hardware device
     
 class PendingDevice: # virtual device which is pending creation
     
+    """A master pointer/keyboard pair which is pending creation.
+    
+    The user has given it a name, but it hasn't been actually created, so it
+    doesn't have any numeric IDs assigned yet. Until pending changes are 
+    applied, hardware input devices cannot be slaved to it.
+    
+    """
+    
     def __init__ (self, name):
         self.name = name
 
-# Reads the raw output of "xinput list" and parses it somewhat
 def read_raw_device_data ():
+    
+    """Invokes the external program "xinput" and returns a "raw" device list.
+    
+    The output is cleaned up an split into lines and tokens, but still not
+    very useful without further processing.
+    
+    """
     
     ret = {}
     
@@ -106,9 +161,15 @@ def read_raw_device_data ():
     
     return ret
 
-# Returns a list of MasterDevice objects, each of which may be populated with
-# SlaveDevice objects.
 def get_device_status ():
+    
+    """Returns a list of MasterDevice objects.
+    
+    Each of MasterDevice corresponds to a master pointer/master keyboard pair
+    that currently exists in the X server. Each MasterDevice may also be
+    populated with SlaveDevice objects.
+    
+    """
     
     unsorted_devices = read_raw_device_data ()
     
@@ -155,6 +216,16 @@ def get_device_status ():
 
 class DeviceTree (wx.gizmos.TreeListCtrl):
     
+    """Tree list control widget displaying the master/slave device heirarchy.
+    
+    Inherits from wxPython's TreeListCtrl, and wraps some of its methods to
+    to allow MasterDevice/SlaveDevice/PendingDevice objects to be used inter-
+    changeably with the corresponding wxObjects that appear in the list, as 
+    well as adding semantics to interactions like drag-and-drop, right-click,
+    etc.
+    
+    """
+    
     def __init__ (self, window, panel):
         
         self.window = window
@@ -185,7 +256,16 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.selection_context = None
     
     def addMaster (self, device):
-    
+        
+        """Add widgets to display a MasterDevice and all its current slaves.
+        
+        Note that the widgets for the slaves may be moved to other groups by
+        other methods to reflect pending changes.
+        
+        Called a bunch of times during initialization and refresh.
+        
+        """
+        
         menudev = self.AppendItem (self.root, device.name)
         self.SetItemPyData (menudev, device)
         
@@ -198,11 +278,15 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
     
     def SetItemPyData (self, it, data):
         
+        """Wrapped wxWidgets method."""
+        
         super (DeviceTree, self).SetItemPyData(it, data)
         
         self.all_devices.update ({data: it})
     
     def Delete (self, it, *args, **kwargs):
+        
+        """Wrapped wxWidgets method."""
         
         # So "it" can be a menu item or a device object
         if it in self.all_devices:
@@ -216,12 +300,17 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
     
     def DeleteAllItems (self, *args, **kwargs):
         
+        """Wrapped wxWidgets method."""
+        
         super (DeviceTree, self).DeleteAllItems (*args, **kwargs)
         
         self.root = self.AddRoot ("Pointers")
         self.all_devices = {}
     
     def OnBeginDrag (self, evt):
+        
+        """Drag-and-drop callback: start dragging."""
+        
         it = evt.GetItem ()
         self.dragItem = None
         if self.GetItemPyData(it).__class__ != SlaveDevice:
@@ -229,33 +318,44 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.dragItem = it
         evt.Allow ()
     
-    def FindListEntryParentDevice (self, listitem):
-        if self.GetItemPyData(listitem).__class__ == SlaveDevice:
-            listitem = self.GetItemParent (listitem)
-        return self.GetItemPyData(listitem)
-    
     def OnEndDrag (self, evt):
-    
+        
+        """Drag-and-drop callback: drop."""
+        
         if evt.GetItem ().IsOk ():
             target_menuitem = evt.GetItem ()
         else:
             return
         
-        source_menuitem = self.dragItem
+        moved_menuitem = self.dragItem
         
-        if source_menuitem == None:
+        if moved_menuitem == None:
             return
         
-        sourcemaster_device = self.FindListEntryParentDevice (source_menuitem)
-        target_device = self.FindListEntryParentDevice (target_menuitem)
-        source_device = self.GetItemPyData(source_menuitem)
+        target_device = self.GetItemPyData (target_menuitem)
         
-        if sourcemaster_device == target_device:
-            return
+        # If the user dragged one slave onto another slave, he probably meant
+        # to drag it onto a master device.
+        if target_device.__class__ == SlaveDevice:
+            target_device = target_device.parent
         
-        self.window.cmdlist.MoveDeviceCmd (source_device, target_device)
+        moved_device = self.GetItemPyData(moved_menuitem)
+        
+        if moved_device.parent == target_device:
+            return # didn't actually move it anywhere different
+        
+        # Generate the pending commands for this action
+        self.window.cmdlist.MoveDeviceCmd (moved_device, target_device)
     
     def OnSelectItem (self, evt):
+        
+        """Selection callback: select an item in the list.
+        
+        Updates the contents of the right-click menu in case the item is going
+        to be right-clicked. Also update the main toolbar so its buttons will
+        act on the currently selected item.
+        
+        """
         
         self.selection_context = None
         self.delete_callback = None
@@ -279,6 +379,8 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
     def OnRightClick (self, evt):
         
+        """Right-click callback: update selection, display context menu."""
+        
         if evt.GetItem ().IsOk ():
             target = evt.GetItem ()
         else:
@@ -289,8 +391,9 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         if self.selection_context != None:
             self.PopupMenu (self.selection_context)
 
-# The main tooolbar.
 class MainBar (wx.Panel):
+    
+    """The main toolbar. Currently just a POD class."""
     
     def __init__ (self, parent, panel):
         
@@ -318,10 +421,15 @@ class MainBar (wx.Panel):
         
         self.SetSizer (sizer)
 
-# The toolbar that appears when you click on "Add." It has a text field for
-# editing the name of the master pointer to create, as well as "OK" and 
-# "Cancel" buttons.
 class NewMasterBar (wx.Panel):
+    
+    """The toolbar used for adding new master pointers.
+    
+    This toolbar is normally hidden, but it appears when you click on "Add."
+    It has a text field for editing the name of the master pointer which will
+    be created, as well as "OK" and "Cancel" buttons.
+    
+    """
     
     def __init__ (self, parent, panel):
         
@@ -349,7 +457,9 @@ class NewMasterBar (wx.Panel):
         self.SetSizer (sizer)
     
     def Show (self):
-    
+        
+        """Make the toolbar visible, set default master pointer name."""
+        
         self.parent.Show (self, True, True)
         
         self.input.SetValue ("New Pointer")
@@ -359,6 +469,8 @@ class NewMasterBar (wx.Panel):
         self.parent.Layout ()
     
     def Hide (self):
+        
+        """Make the toolbar invisible."""
     
         self.parent.Show (self, False, True)
         self.parent.Layout ()
@@ -369,10 +481,17 @@ class NewMasterBar (wx.Panel):
     def GetValue (self):
         return self.input.GetValue ()
 
-# Used for tracking and displaying the "xinput" commands that will apply
-# whatever changes are pending. You can think of this as tracking state
-# changes. In other words, this is pretty much where the magic happens.
 class CommandList (wx.ListCtrl):
+    
+    """Widget listing the "xinput" commands corresponding to pending changes.
+    
+    This widget is not interactive in any way, apart from being scrollable.
+    
+    FIXME: This class is not merely responsible for displaying pending
+    changes, but is also solely responsible for tracking and applying them
+    as well. That stuff should really be moved to another class.
+    
+    """
     
     def __init__ (self, window, panel):
         
@@ -402,12 +521,13 @@ class CommandList (wx.ListCtrl):
         # will be fed one at a time to run_command
         self.all_commands = [] 
     
-    def AppendCommand (self, argslist):
-        
-        self.all_commands += [argslist]
-        self.InsertStringItem (self.GetItemCount(), " ".join (argslist))
-    
     def Regenerate (self):
+        
+        """Regenerates the pending command list and displays the new commands.
+        
+        Called after a device is moved, floated, deleted, created, etc.
+        
+        """
         
         self.DeleteAllItems ()
         
@@ -419,24 +539,32 @@ class CommandList (wx.ListCtrl):
             self.window.toolbar.button_apply.Enable (False)
             return
         
+        def AppendCommand (arglist):
+            
+            self.all_commands += [arglist]
+            #add widget
+            self.InsertStringItem (self.GetItemCount(), " ".join (arglist))
+        
         for source, dest in self.all_moves.iteritems():
             if dest.self_id == FLOATING_ID:
                 # don't have to explicitly run a float command if the parent
                 # is being deleted; that happens automatically
                 if source.parent not in self.all_deletions:
-                    self.AppendCommand (["xinput", "float", str(source.self_id)])
+                    AppendCommand (["xinput", "float", str(source.self_id)])
             else:
-                self.AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.pointer_id)])
-                self.AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.keyboard_id)])
+                AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.pointer_id)])
+                AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.keyboard_id)])
         
         for device in self.all_deletions:
-            self.AppendCommand (["xinput", "remove-master", str(device.self_id)])
+            AppendCommand (["xinput", "remove-master", str(device.self_id)])
         
         for device in self.all_creations:
-            self.AppendCommand (["xinput", "create-master", device.name])
+            AppendCommand (["xinput", "create-master", device.name])
     
     def Run (self, evt):
-
+        
+        """Run pending commands, then load the new state of the X server."""
+        
         for cmd in self.all_commands:
             subprocess.Popen (["/usr/bin/env"] + cmd)
 
@@ -644,6 +772,13 @@ class CommandList (wx.ListCtrl):
 
 class MainColumn (wx.BoxSizer):
     
+    """Container widget containing all the other widgets in the GUI.
+    
+    Not much interesting functionality here, just layout stuff and a couple of
+    callbacks. Should probably be merged with UI class below.
+    
+    """
+        
     def __init__ (self, UI):
         
         self.UI = UI
@@ -693,6 +828,13 @@ class MainColumn (wx.BoxSizer):
         self.cmdlist.CreateDeviceCmd (newdevice)
 
 class UI (wx.Frame):
+    
+    """Top-level window widget.
+    
+    Besides some initialization code, there's not much interesting
+    functionality here.  Just layout stuff and a couple of callbacks.
+    
+    """
     
     def __init__(self, parent, title):
     
