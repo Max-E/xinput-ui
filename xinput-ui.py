@@ -47,7 +47,8 @@ def run_command (command):
 
 # Strip all the extra Unicode characters "xinput list" likes to output
 def mystrip (string):
-    return string.strip(str_whitespace+'\xe2\x8e\xa1\xe2\x8e\x9c\xe2\x86\xb3\xe2\x8e\xa3\x88\xbc')
+    str_special = '\xe2\x8e\xa1\xe2\x8e\x9c\xe2\x86\xb3\xe2\x8e\xa3\x88\xbc'
+    return string.strip(str_whitespace+str_special)
 
 def device_sort (device_set):
     return sorted(device_set, key = operator.attrgetter ('self_id'))
@@ -267,7 +268,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         target_device = self.GetItemPyData(target)
         
-        if target_device != None:
+        if target_device == None:
             self.selection_context = ctx_menu = wx.Menu ()
             self.window.cmdlist.MakeUndoMenuItem (ctx_menu, target_device)
             self.delete_callback = self.window.cmdlist.MakeDeleteMenuItem (ctx_menu, target_device)
@@ -297,18 +298,18 @@ class MainBar (wx.Panel):
         
         sizer = wx.BoxSizer (wx.HORIZONTAL)
         
-        self.button_refresh = wx.Button (self, label='Refresh', id = wx.ID_REFRESH)
-        sizer.Add (self.button_refresh)
-        self.Bind (wx.EVT_BUTTON, parent.UI.refreshDevices, self.button_refresh)
+        button_refresh = wx.Button (self, label='Refresh', id = wx.ID_REFRESH)
+        sizer.Add (button_refresh)
+        self.Bind (wx.EVT_BUTTON, parent.UI.refreshDevices, button_refresh)
         
         self.button_apply = wx.Button (self, label='Apply', id = wx.ID_APPLY)
         self.button_apply.Enable (False)
         sizer.Add (self.button_apply)
         self.Bind (wx.EVT_BUTTON, parent.cmdlist.Run, self.button_apply)
         
-        self.button_new = wx.Button (self, label='Add', id = wx.ID_ADD)
-        sizer.Add (self.button_new)
-        self.Bind (wx.EVT_BUTTON, parent.OnNewMasterStart, self.button_new)
+        button_new = wx.Button (self, label='Add', id = wx.ID_ADD)
+        sizer.Add (button_new)
+        self.Bind (wx.EVT_BUTTON, parent.OnNewMasterStart, button_new)
         
         self.button_del = wx.Button (self, label='Remove', id = wx.ID_REMOVE)
         self.button_del.Enable (False)
@@ -337,13 +338,13 @@ class NewMasterBar (wx.Panel):
         sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
         self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterDone, self.input)
         
-        self.button_confirm = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
-        sizer.Add (self.button_confirm, flag = wx.ALIGN_RIGHT)
-        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterDone, self.button_confirm)
+        button_confirm = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
+        sizer.Add (button_confirm, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterDone, button_confirm)
         
-        self.button_cancel = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
-        sizer.Add (self.button_cancel, flag = wx.ALIGN_RIGHT)
-        self.Bind (wx.EVT_BUTTON, self.OnCancel, self.button_cancel)
+        button_cancel = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
+        sizer.Add (button_cancel, flag = wx.ALIGN_RIGHT)
+        self.Bind (wx.EVT_BUTTON, self.OnCancel, button_cancel)
         
         self.SetSizer (sizer)
     
@@ -476,6 +477,8 @@ class CommandList (wx.ListCtrl):
         self.window.tree.Expand (target_menuitem)
         
         if moved_device.parent == target_device:
+            # a normal drag-and-drop operation has coincidentally had the same
+            # effect as an undo operation
             self.all_moves.pop (moved_device, None)
         else:
             self.all_moves.update ({moved_device: target_device})
