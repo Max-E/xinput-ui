@@ -251,6 +251,49 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.delete_callback = None
         self.selection_context = None
     
+    def UpdateDeviceName (self, device):
+        
+        """Set the device's display name.
+        
+        Call this if the device's status changes and the display needs to 
+        reflect the change.
+        
+        """
+        
+        menuitem = self.all_devices[device]
+        
+        # "Name" column
+        self.SetItemText (menuitem, device.name + self.window.cmdlist.GetDeviceStatusText (device))
+        
+        if device.__class__ == SlaveDevice: # "ID" column
+            self.SetItemText (menuitem, str(device.self_id), 1)
+    
+    def AppendItem (self, parent, device, *args, **kwargs):
+        
+        """Wrapped wxWidgets method.
+        
+        Note that this method can only be used to append device objects, which
+        is explicitly intended to restrict this class's functionality.
+        
+        """
+        
+        parent_menuitem = parent
+        if parent in self.all_devices:
+            parent_menuitem = self.all_devices[parent]
+        
+        menuitem = super (DeviceTree, self).AppendItem (parent_menuitem, "")
+        self.SetItemPyData (menuitem, device)
+        
+        self.UpdateDeviceName (device)
+        
+        return menuitem
+    
+    def Expand (self, device):
+        
+        """Wrapped wxWidgets Method."""
+        
+        super (DeviceTree, self).Expand (self.all_devices[device])
+    
     def addMaster (self, device):
         
         """Add widgets to display a MasterDevice and all its current slaves.
@@ -262,15 +305,12 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         """
         
-        menudev = self.AppendItem (self.root, device.name)
-        self.SetItemPyData (menudev, device)
+        self.AppendItem (self.root, device)
         
         for slave in device_sort(device.children):
-            it = self.AppendItem (menudev, slave.name)
-            self.SetItemText (it, str(slave.self_id), 1)
-            self.SetItemPyData (it, slave) 
+            self.AppendItem (device, slave)
         
-        self.Expand (menudev)
+        self.Expand (device)
     
     def SetItemPyData (self, it, data):
         
@@ -279,6 +319,32 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         super (DeviceTree, self).SetItemPyData(it, data)
         
         self.all_devices.update ({data: it})
+    
+    def ItemHasChildren (self, device):
+        
+        """Wrapped wxWidgets method."""
+        
+        return super (DeviceTree, self).ItemHasChildren (self.all_devices[device])
+    
+    def GetChildrenCount (self, device, recursively = 1):
+        
+        """Wrapped wxWidgets method."""
+        
+        return super (DeviceTree, self).GetChildrenCount (self.all_devices[device], recursively)
+    
+    def GetFirstChild (self, device):
+        
+        """Wrapped wxWidgets method."""
+        
+        ret, new_cookie = super (DeviceTree, self).GetFirstChild (self.all_devices[device])
+        return self.GetItemPyData (ret), new_cookie
+    
+    def GetNextChild (self, device, cookie):
+        
+        """Wrapped wxWidgets method."""
+        
+        ret, new_cookie = super (DeviceTree, self).GetNextChild (self.all_devices[device], cookie)
+        return self.GetItemPyData (ret), new_cookie
     
     def Delete (self, it, *args, **kwargs):
         
@@ -514,6 +580,19 @@ class CommandList (wx.ListCtrl):
         # will be fed one at a time to run_command
         self.all_commands = [] 
     
+    def GetDeviceStatusText (self, device):
+        
+        """For use in the device tree view display."""
+        
+        if device in self.all_moves:
+            return " (move pending)"
+        elif device in self.all_creations:
+            return " (pending)"
+        elif device in self.all_deletions:
+            return " (deleted)"
+        else:
+            return ""
+    
     def Regenerate (self):
         
         """Regenerates the pending command list and displays the new commands.
@@ -584,25 +663,21 @@ class CommandList (wx.ListCtrl):
             )
             return 
         
-        target_menuitem = self.window.tree.all_devices[target_device]
-        
-        self.window.tree.Delete (moved_device)
-        
-        text = moved_device.name
-        if moved_device.parent != target_device:
-            text += ' (move pending)'
-        
-        new_menuitem = self.window.tree.AppendItem (target_menuitem, text)
-        self.window.tree.SetItemText (new_menuitem, str(moved_device.self_id), 1)
-        self.window.tree.SetItemPyData (new_menuitem, moved_device)
-        self.window.tree.Expand (target_menuitem)
-        
         if moved_device.parent == target_device:
             # a normal drag-and-drop operation has coincidentally had the same
             # effect as an undo operation
+            if moved_device not in self.all_moves:
+                return # don't need to do anything
             self.all_moves.pop (moved_device, None)
         else:
+            if moved_device in self.all_moves and self.all_moves[moved_device] == target_device:
+                return #don't need to do anything
             self.all_moves.update ({moved_device: target_device})
+        
+        self.window.tree.Delete (moved_device)
+        
+        self.window.tree.AppendItem (target_device, moved_device)
+        self.window.tree.Expand (target_device)
         
         self.Regenerate ()
     
@@ -620,8 +695,7 @@ class CommandList (wx.ListCtrl):
         self.all_creations.add (new_device)
         self.Regenerate ()
         
-        menudev = self.window.tree.AppendItem (self.window.tree.root, new_device.name+' (pending)' )
-        self.window.tree.SetItemPyData (menudev, new_device)
+        self.window.tree.AppendItem (self.window.tree.root, new_device)
     
     def UndoCreateDeviceCmd (self, device):
         
@@ -632,16 +706,11 @@ class CommandList (wx.ListCtrl):
     
     def DetachAllSlavesFromDeviceCmd (self, device):
         
-        device_menuitem = self.window.tree.all_devices[device]
-        
-        while self.window.tree.ItemHasChildren (device_menuitem):
-            child_menuitem, _ = self.window.tree.GetFirstChild(device_menuitem)
-            child_device = self.window.tree.GetItemPyData(child_menuitem)
+        while self.window.tree.ItemHasChildren (device):
+            child_device, _ = self.window.tree.GetFirstChild(device)
             self.DetachDeviceCmd (child_device)
     
     def ResetAllSlavesOfDeviceCmd (self, device):
-        
-        device_menuitem = self.window.tree.all_devices[device]
         
         # First undo any devices that have been moved to this master 
         
@@ -649,13 +718,12 @@ class CommandList (wx.ListCtrl):
         # simultaneously, so we need to defer our modifications
         children_to_move = set()
         
-        nc = self.window.tree.GetChildrenCount(device_menuitem, 0)
-        child_menuitem, cookie = self.window.tree.GetFirstChild(device_menuitem)
+        nc = self.window.tree.GetChildrenCount(device, 0)
+        child_device, cookie = self.window.tree.GetFirstChild(device)
         for _ in xrange(nc):
-            child_device = self.window.tree.GetItemPyData(child_menuitem)
             if child_device.parent != device:
                 children_to_move.add (child_device)
-            child_menuitem, cookie = self.window.tree.GetNextChild(device_menuitem, cookie)
+            child_device, cookie = self.window.tree.GetNextChild(device, cookie)
         
         for child_device in children_to_move:
             self.UndoMoveDeviceCmd (child_device)
@@ -669,13 +737,13 @@ class CommandList (wx.ListCtrl):
         
         self.DetachAllSlavesFromDeviceCmd (device)
         self.all_deletions.add (device)
-        self.window.tree.SetItemText (self.window.tree.all_devices[device], device.name + '(deleted)')
+        self.window.tree.UpdateDeviceName (device)
         self.Regenerate ()
     
     def UndoDeleteDeviceCmd (self, device):
         
         self.all_deletions.remove (device)
-        self.window.tree.SetItemText (self.window.tree.all_devices[device], device.name)
+        self.window.tree.UpdateDeviceName (device)
         self.Regenerate ()
     
     def Reset (self):
