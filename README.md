@@ -73,6 +73,11 @@ Xinput-UI doesn't yet provide any way to save the MPX configuration, so it
 will be lost when the X session ends. A way to save the configuration to a 
 file in xorg.conf.d, or a way to save and load presets, might be a good idea.
 
+Known Bugs
+----------
+
+Drag and drop is far more fiddly than it should be.
+
 License
 -------
 
