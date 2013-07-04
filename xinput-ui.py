@@ -328,7 +328,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
             if target_device.__class__ == SlaveDevice:
                 target_menuitem = self.GetItemParent (target_menuitem)
                 target_device = self.GetItemPyData (target_menuitem)
-                
+            
             # Generate the pending commands for this action
             self.UI.changes.MoveDeviceCmd (moved_device, target_device)
         
@@ -513,7 +513,7 @@ class NewMasterBar (wx.Panel):
         newdevice = PendingDevice (self.input.GetValue ())
         self.Hide ()
         
-        self.parent.changes.CreateDeviceCmd (newdevice)
+        self.parent.UI.changes.CreateDeviceCmd (newdevice)
 
 class CommandList (wx.ListCtrl):
     
@@ -562,6 +562,9 @@ class Changes:
         # changes.) Updated by Regenerate.
         self.display_heirarchy = None
         
+        # copy of the floating master for convenience
+        self.floating_group = None
+        
         # Essentially the device heirarchy as it currently exists, before 
         # changes.
         self.master_devices = None
@@ -590,6 +593,8 @@ class Changes:
         
         """
         
+        self.floating_group = self.master_devices[FLOATING_ID]
+        
         self.UI.vbox.cmdlist.DeleteAllItems ()
         self.UI.vbox.tree.DeleteAllItems ()
         
@@ -607,7 +612,7 @@ class Changes:
             if device in self.all_moves:
                 dest_device = self.all_moves[device]
                 self_id_str = str(device.self_id)
-                if dest_device.self_id == FLOATING_ID:
+                if dest_device == self.floating_group:
                     # don't have to explicitly run a float command if the
                     # parent is being deleted; that happens automatically
                     if device.parent not in self.all_deletions:
@@ -626,15 +631,14 @@ class Changes:
                 AddToHeirarchy (slave)
         
         for master in device_sort (self.master_devices.values()):
-            if master.self_id != FLOATING_ID:
+            if master != self.floating_group:
                 self.UI.vbox.tree.addMaster (master, self.display_heirarchy[master])
         
         for pending in self.all_creations:
             AppendCommand (["xinput", "create-master", pending.name])
             self.UI.vbox.tree.addMaster (pending, [])
         
-        floating_group = self.master_devices[FLOATING_ID]
-        self.UI.vbox.tree.addMaster (floating_group, self.display_heirarchy[floating_group])
+        self.UI.vbox.tree.addMaster (self.floating_group, self.display_heirarchy[self.floating_group])
         
         self.UI.vbox.toolbar.button_apply.Enable (bool(len(self.all_commands)))
     
@@ -685,8 +689,7 @@ class Changes:
     
     def DetachDeviceCmd (self, child_device):
         
-        target_device = self.master_devices[FLOATING_ID]
-        self.MoveDeviceCmd (child_device, target_device)
+        self.MoveDeviceCmd (child_device, self.floating_group)
     
     def UndoMoveDeviceCmd (self, device):
         
@@ -776,7 +779,7 @@ class Changes:
             action = lambda _: self.UndoCreateDeviceCmd (device)
         
         elif device in self.all_moves and device.parent not in self.all_deletions:
-            if self.all_moves[device].self_id == FLOATING_ID:
+            if self.all_moves[device] == self.floating_group:
                 text = 'Cancel detach '+device.name
             else:
                 text = 'Cancel reattach '+device.name
@@ -795,17 +798,14 @@ class Changes:
         text = None
         action = None
         
-        if device in self.all_deletions or device in self.all_creations or device.self_id == FLOATING_ID:
+        if device in self.all_deletions or device in self.all_creations or device == self.floating_group:
             return None
         
-        elif device in self.master_devices.values():
+        elif device.__class__ != SlaveDevice:
             text = 'Delete '+device.name
             action = lambda _: self.DeleteDeviceCmd (device)
         
-        elif device not in self.all_moves and device.parent.self_id == FLOATING_ID:
-            return None
-        
-        elif device in self.all_moves and self.all_moves[device].self_id == FLOATING_ID:
+        elif device in self.display_heirarchy[self.floating_group]:
             return None
         
         else:
@@ -820,10 +820,10 @@ class Changes:
     
     def MakeMasterDeviceMenuItems (self, menu, device):
         
-        if      device not in self.master_devices.values() or \
+        if      device.__class__ == SlaveDevice or \
                 device in self.all_creations or \
                 device in self.all_deletions or \
-                device.self_id == FLOATING_ID:
+                device == self.floating_group:
             return
         
         reset_action = lambda _: self.ResetAllSlavesOfDeviceCmd (device)
