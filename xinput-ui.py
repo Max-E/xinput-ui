@@ -85,6 +85,7 @@ class MasterDevice:
         self.name = name
         self.children = set()
         self.self_id = self.pointer_id = self.keyboard_id = INVALID_ID
+        self.expanded = True
     
     def set_pointer_id (self, pointer_id):
         """MUST be called before any devices are slaved!"""
@@ -131,6 +132,7 @@ class PendingDevice: # virtual device which is pending creation
     
     def __init__ (self, name):
         self.name = name
+        self.expanded = False #really doesn't matter which
 
 def read_raw_device_data ():
     
@@ -214,17 +216,16 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
     
     """Tree list control widget displaying the master/slave device heirarchy.
     
-    Inherits from wxPython's TreeListCtrl, and wraps some of its methods to
-    to allow MasterDevice/SlaveDevice/PendingDevice objects to be used inter-
-    changeably with the corresponding wxObjects that appear in the list, as 
-    well as adding semantics to interactions like drag-and-drop, right-click,
-    etc.
+    Inherits from wxPython's TreeListCtrl, and adds semantics to interactions
+    like drag-and-drop, right-click, etc. This widget is completely emptied
+    and regenerated every time something changes, because that's easier than
+    constantly updating it to track current state.
     
     """
     
-    def __init__ (self, window, panel):
+    def __init__ (self, UI, panel):
         
-        self.window = window
+        self.UI = UI
         
         label = wx.StaticBox (panel, label = "Devices:")
         sizer = wx.StaticBoxSizer (label, wx.VERTICAL)
@@ -245,13 +246,13 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         self.Bind (wx.EVT_TREE_ITEM_RIGHT_CLICK, self.OnRightClick)
         
         self.Bind (wx.EVT_TREE_SEL_CHANGED, self.OnSelectItem)
-        
-        self.all_devices = {}
+        self.Bind (wx.EVT_TREE_ITEM_COLLAPSED, self.OnCollapseOrExpandItem)
+        self.Bind (wx.EVT_TREE_ITEM_EXPANDED, self.OnCollapseOrExpandItem)
         
         self.delete_callback = None
         self.selection_context = None
     
-    def UpdateDeviceName (self, device):
+    def UpdateDeviceName (self, device, menuitem):
         
         """Set the device's display name.
         
@@ -260,41 +261,13 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         """
         
-        menuitem = self.all_devices[device]
-        
         # "Name" column
-        self.SetItemText (menuitem, device.name + self.window.cmdlist.GetDeviceStatusText (device))
+        self.SetItemText (menuitem, device.name + self.UI.changes.GetDeviceStatusText (device))
         
         if device.__class__ == SlaveDevice: # "ID" column
             self.SetItemText (menuitem, str(device.self_id), 1)
     
-    def AppendItem (self, parent, device, *args, **kwargs):
-        
-        """Wrapped wxWidgets method.
-        
-        Note that this method can only be used to append device objects, which
-        is explicitly intended to restrict this class's functionality.
-        
-        """
-        
-        parent_menuitem = parent
-        if parent in self.all_devices:
-            parent_menuitem = self.all_devices[parent]
-        
-        menuitem = super (DeviceTree, self).AppendItem (parent_menuitem, "")
-        self.SetItemPyData (menuitem, device)
-        
-        self.UpdateDeviceName (device)
-        
-        return menuitem
-    
-    def Expand (self, device):
-        
-        """Wrapped wxWidgets Method."""
-        
-        super (DeviceTree, self).Expand (self.all_devices[device])
-    
-    def addMaster (self, device):
+    def addMaster (self, device, slavelist):
         
         """Add widgets to display a MasterDevice and all its current slaves.
         
@@ -305,60 +278,17 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         """
         
-        self.AppendItem (self.root, device)
+        device_menuitem = self.AppendItem (self.root, "")
+        self.SetItemPyData (device_menuitem, device)
+        self.UpdateDeviceName (device, device_menuitem)
         
-        for slave in device_sort(device.children):
-            self.AppendItem (device, slave)
+        for slave in device_sort(slavelist):
+            slave_menuitem = self.AppendItem (device_menuitem, "")
+            self.SetItemPyData (slave_menuitem, slave)
+            self.UpdateDeviceName (slave, slave_menuitem)
         
-        self.Expand (device)
-    
-    def SetItemPyData (self, it, data):
-        
-        """Wrapped wxWidgets method."""
-        
-        super (DeviceTree, self).SetItemPyData(it, data)
-        
-        self.all_devices.update ({data: it})
-    
-    def ItemHasChildren (self, device):
-        
-        """Wrapped wxWidgets method."""
-        
-        return super (DeviceTree, self).ItemHasChildren (self.all_devices[device])
-    
-    def GetChildrenCount (self, device, recursively = 1):
-        
-        """Wrapped wxWidgets method."""
-        
-        return super (DeviceTree, self).GetChildrenCount (self.all_devices[device], recursively)
-    
-    def GetFirstChild (self, device):
-        
-        """Wrapped wxWidgets method."""
-        
-        ret, new_cookie = super (DeviceTree, self).GetFirstChild (self.all_devices[device])
-        return self.GetItemPyData (ret), new_cookie
-    
-    def GetNextChild (self, device, cookie):
-        
-        """Wrapped wxWidgets method."""
-        
-        ret, new_cookie = super (DeviceTree, self).GetNextChild (self.all_devices[device], cookie)
-        return self.GetItemPyData (ret), new_cookie
-    
-    def Delete (self, it, *args, **kwargs):
-        
-        """Wrapped wxWidgets method."""
-        
-        # So "it" can be a menu item or a device object
-        if it in self.all_devices:
-            it = self.all_devices[it]
-        
-        super (DeviceTree, self).Delete (it, *args, **kwargs)
-        
-        data = self.GetItemPyData (it)
-        if data != None:
-            self.all_devices.pop (data)
+        if device.expanded:
+            self.Expand (device_menuitem)
     
     def DeleteAllItems (self, *args, **kwargs):
         
@@ -367,15 +297,14 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         super (DeviceTree, self).DeleteAllItems (*args, **kwargs)
         
         self.root = self.AddRoot ("Pointers")
-        self.all_devices = {}
     
     def OnBeginDrag (self, evt):
         
         """Drag-and-drop callback: start dragging."""
         
-        it = evt.GetItem ()
+        it = self.GetItemPyData (evt.GetItem ())
         self.dragItem = None
-        if self.GetItemPyData(it).__class__ != SlaveDevice:
+        if it.__class__ != SlaveDevice:
             return
         self.dragItem = it
         evt.Allow ()
@@ -384,27 +313,44 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         """Drag-and-drop callback: drop."""
         
+        moved_device = self.dragItem
+        
+        if moved_device == None:
+            #someone tried to drag a master device
+            return
+        
         if evt.GetItem ().IsOk ():
+            
             target_menuitem = evt.GetItem ()
+            target_device = self.GetItemPyData (target_menuitem)
+            # If the user dragged one slave onto another slave, he probably
+            # meant to drag it onto a master device.
+            if target_device.__class__ == SlaveDevice:
+                target_menuitem = self.GetItemParent (target_menuitem)
+                target_device = self.GetItemPyData (target_menuitem)
+                
+            # Generate the pending commands for this action
+            self.UI.changes.MoveDeviceCmd (moved_device, target_device)
+        
         else:
-            return
+            
+            # assume it was dragged past the bottom of the list, and interpret
+            # this as a detach
+            self.UI.changes.DetachDeviceCmd (moved_device)
         
-        moved_menuitem = self.dragItem
+    
+    def OnCollapseOrExpandItem (self, evt):
         
-        if moved_menuitem == None:
-            return
+        """Item collapse/expand callback
         
-        target_device = self.GetItemPyData (target_menuitem)
+        Since the widgets in this list are regenerated willy-nilly, we need a
+        way to persistently track which have been collapsed.
         
-        # If the user dragged one slave onto another slave, he probably meant
-        # to drag it onto a master device.
-        if target_device.__class__ == SlaveDevice:
-            target_device = target_device.parent
+        """
         
-        moved_device = self.GetItemPyData(moved_menuitem)
-        
-        # Generate the pending commands for this action
-        self.window.cmdlist.MoveDeviceCmd (moved_device, target_device)
+        if evt.GetItem ().IsOk ():
+            expanded = self.IsExpanded (evt.GetItem ())
+            self.GetItemPyData (evt.GetItem ()).expanded = expanded
     
     def OnSelectItem (self, evt):
         
@@ -418,7 +364,7 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         self.selection_context = None
         self.delete_callback = None
-        self.window.toolbar.button_del.Enable (False)
+        self.UI.vbox.toolbar.button_del.Enable (False)
         
         if evt.GetItem ().IsOk ():
             target = evt.GetItem ()
@@ -429,12 +375,12 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
         
         if target_device != None:
             self.selection_context = ctx_menu = wx.Menu ()
-            self.window.cmdlist.MakeUndoMenuItem (ctx_menu, target_device)
-            self.delete_callback = self.window.cmdlist.MakeDeleteMenuItem (ctx_menu, target_device)
-            self.window.cmdlist.MakeMasterDeviceMenuItems (ctx_menu, target_device)
+            self.UI.changes.MakeUndoMenuItem (ctx_menu, target_device)
+            self.delete_callback = self.UI.changes.MakeDeleteMenuItem (ctx_menu, target_device)
+            self.UI.changes.MakeMasterDeviceMenuItems (ctx_menu, target_device)
             
             if self.delete_callback != None:
-                self.window.toolbar.button_del.Enable (True)
+                self.UI.vbox.toolbar.button_del.Enable (True)
         
     def OnRightClick (self, evt):
         
@@ -452,34 +398,59 @@ class DeviceTree (wx.gizmos.TreeListCtrl):
 
 class MainBar (wx.Panel):
     
-    """The main toolbar. Currently just a POD class."""
+    """The main toolbar."""
     
     def __init__ (self, parent, panel):
         
         super (MainBar, self).__init__(panel)
         
+        self.changes = parent.UI.changes
+        self.parent = parent
+        
         sizer = wx.BoxSizer (wx.HORIZONTAL)
         
         button_refresh = wx.Button (self, label='Refresh', id = wx.ID_REFRESH)
+        refresh_tooltip = wx.ToolTip ("Abandon changes and reload device list")
+        button_refresh.SetToolTip (refresh_tooltip)
         sizer.Add (button_refresh)
-        self.Bind (wx.EVT_BUTTON, parent.UI.refreshDevices, button_refresh)
+        self.Bind (wx.EVT_BUTTON, self.OnRefresh, button_refresh)
         
         self.button_apply = wx.Button (self, label='Apply', id = wx.ID_APPLY)
         self.button_apply.Enable (False)
+        apply_tooltip = wx.ToolTip ("Apply pending changes")
+        self.button_apply.SetToolTip (apply_tooltip)
         sizer.Add (self.button_apply)
-        self.Bind (wx.EVT_BUTTON, parent.cmdlist.Run, self.button_apply)
+        self.Bind (wx.EVT_BUTTON, self.OnApply, self.button_apply)
         
         button_new = wx.Button (self, label='Add', id = wx.ID_ADD)
+        new_tooltip = wx.ToolTip ("Add a new master device")
+        button_new.SetToolTip (new_tooltip)
         sizer.Add (button_new)
-        self.Bind (wx.EVT_BUTTON, parent.OnNewMasterStart, button_new)
+        self.Bind (wx.EVT_BUTTON, self.OnNewMasterStart, button_new)
         
         self.button_del = wx.Button (self, label='Remove', id = wx.ID_REMOVE)
         self.button_del.Enable (False)
         sizer.Add (self.button_del)
-        self.Bind (wx.EVT_BUTTON, parent.OnDelete, self.button_del)
+        self.Bind (wx.EVT_BUTTON, self.OnDelete, self.button_del)
         
         self.SetSizer (sizer)
-
+    
+    def OnRefresh (self, _):
+        
+        self.changes.Reset ()
+    
+    def OnApply (self, _):
+        
+        self.changes.Apply ()
+    
+    def OnDelete (self, evt):
+        
+        self.parent.tree.delete_callback (evt)
+    
+    def OnNewMasterStart (self, _):
+        
+        self.parent.createmaster_toolbar.Show ()
+        
 class NewMasterBar (wx.Panel):
     
     """The toolbar used for adding new master pointers.
@@ -503,11 +474,11 @@ class NewMasterBar (wx.Panel):
         
         self.input = wx.TextCtrl (self, style = wx.TE_PROCESS_ENTER)
         sizer.Add (self.input, flag = wx.EXPAND, proportion = 1)
-        self.Bind (wx.EVT_TEXT_ENTER, self.parent.OnNewMasterDone, self.input)
+        self.Bind (wx.EVT_TEXT_ENTER, self.OnNewMasterDone, self.input)
         
         button_confirm = wx.Button (self, label='OK', style = wx.BU_EXACTFIT, id = wx.ID_OK)
         sizer.Add (button_confirm, flag = wx.ALIGN_RIGHT)
-        self.Bind (wx.EVT_BUTTON, self.parent.OnNewMasterDone, button_confirm)
+        self.Bind (wx.EVT_BUTTON, self.OnNewMasterDone, button_confirm)
         
         button_cancel = wx.Button (self, label='Cancel', style = wx.BU_EXACTFIT, id = wx.ID_CANCEL)
         sizer.Add (button_cancel, flag = wx.ALIGN_RIGHT)
@@ -537,8 +508,12 @@ class NewMasterBar (wx.Panel):
     def OnCancel (self, _):
         self.Hide ()
     
-    def GetValue (self):
-        return self.input.GetValue ()
+    def OnNewMasterDone (self, _):
+        
+        newdevice = PendingDevice (self.input.GetValue ())
+        self.Hide ()
+        
+        self.parent.changes.CreateDeviceCmd (newdevice)
 
 class CommandList (wx.ListCtrl):
     
@@ -546,21 +521,11 @@ class CommandList (wx.ListCtrl):
     
     This widget is not interactive in any way, apart from being scrollable.
     
-    FIXME: This class is not merely responsible for displaying pending
-    changes, but is also solely responsible for tracking and applying them
-    as well. That stuff should really be moved to another class.
-    
     """
     
     def __init__ (self, window, panel):
         
         self.window = window
-        
-        # used for categorizing different types of commands
-        
-        self.all_moves = {}
-        self.all_deletions = set()
-        self.all_creations = set()
         
         # set up the GUI command list preview widget
         
@@ -574,11 +539,32 @@ class CommandList (wx.ListCtrl):
         panel.SetMinSize ((-1, 50))
         
         panel.SetSizer (sizer)
+
+class Changes:
+    
+    """Class for tracking, updating, and applying pending changes."""
+    
+    def __init__ (self, UI):
         
-        # set up the list of commands we will actually execute
+        self.UI = UI
         
-        # will be fed one at a time to run_command
+        # Used for categorizing different types of commands. Call Regenerate
+        # after updating any of these.
+        self.all_moves = {}
+        self.all_deletions = set()
+        self.all_creations = set()
+        
+        # Will be fed one at a time to run_command function. Updated by 
+        # Regenerate.
         self.all_commands = [] 
+        
+        # reflects what's currently on-screen (i.e. current state plus pending
+        # changes.) Updated by Regenerate.
+        self.display_heirarchy = None
+        
+        # Essentially the device heirarchy as it currently exists, before 
+        # changes.
+        self.master_devices = None
     
     def GetDeviceStatusText (self, device):
         
@@ -597,43 +583,62 @@ class CommandList (wx.ListCtrl):
         
         """Regenerates the pending command list and displays the new commands.
         
+        Also updates the preview of the new device heirarchy as it will exist
+        after changes are applied.
+        
         Called after a device is moved, floated, deleted, created, etc.
         
         """
         
-        self.DeleteAllItems ()
+        self.UI.vbox.cmdlist.DeleteAllItems ()
+        self.UI.vbox.tree.DeleteAllItems ()
         
         self.all_commands = []
-        
-        if len(self.all_moves) + len(self.all_deletions) + len(self.all_creations):
-            self.window.toolbar.button_apply.Enable (True)
-        else:
-            self.window.toolbar.button_apply.Enable (False)
-            return
+        self.display_heirarchy = {master: [] for master in self.master_devices.values()}
         
         def AppendCommand (arglist):
             
             self.all_commands += [arglist]
             #add widget
-            self.InsertStringItem (self.GetItemCount(), " ".join (arglist))
+            self.UI.vbox.cmdlist.InsertStringItem (self.UI.vbox.cmdlist.GetItemCount(), " ".join (arglist))
         
-        for source, dest in self.all_moves.iteritems():
-            if dest.self_id == FLOATING_ID:
-                # don't have to explicitly run a float command if the parent
-                # is being deleted; that happens automatically
-                if source.parent not in self.all_deletions:
-                    AppendCommand (["xinput", "float", str(source.self_id)])
+        def AddToHeirarchy (device):
+            
+            if device in self.all_moves:
+                dest_device = self.all_moves[device]
+                self_id_str = str(device.self_id)
+                if dest_device.self_id == FLOATING_ID:
+                    # don't have to explicitly run a float command if the
+                    # parent is being deleted; that happens automatically
+                    if device.parent not in self.all_deletions:
+                        AppendCommand (["xinput", "float", self_id_str])
+                else:
+                    AppendCommand (["xinput", "reattach", self_id_str, str(dest_device.pointer_id)])
+                    AppendCommand (["xinput", "reattach", self_id_str, str(dest_device.keyboard_id)])
+                self.display_heirarchy[self.all_moves[device]] += [device]
             else:
-                AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.pointer_id)])
-                AppendCommand (["xinput", "reattach", str(source.self_id), str(dest.keyboard_id)])
+                self.display_heirarchy[device.parent] += [device]
         
-        for device in self.all_deletions:
-            AppendCommand (["xinput", "remove-master", str(device.self_id)])
+        for master in device_sort (self.master_devices.values()):
+            if master in self.all_deletions:
+                AppendCommand (["xinput", "remove-master", str(master.self_id)])
+            for slave in master.children:
+                AddToHeirarchy (slave)
         
-        for device in self.all_creations:
-            AppendCommand (["xinput", "create-master", device.name])
+        for master in device_sort (self.master_devices.values()):
+            if master.self_id != FLOATING_ID:
+                self.UI.vbox.tree.addMaster (master, self.display_heirarchy[master])
+        
+        for pending in self.all_creations:
+            AppendCommand (["xinput", "create-master", pending.name])
+            self.UI.vbox.tree.addMaster (pending, [])
+        
+        floating_group = self.master_devices[FLOATING_ID]
+        self.UI.vbox.tree.addMaster (floating_group, self.display_heirarchy[floating_group])
+        
+        self.UI.vbox.toolbar.button_apply.Enable (bool(len(self.all_commands)))
     
-    def Run (self, evt):
+    def Apply (self):
         
         """Run pending commands, then load the new state of the X server."""
         
@@ -643,7 +648,7 @@ class CommandList (wx.ListCtrl):
         # suppress the "unapplied pending changes" warning.
         self.all_commands = [] 
 
-        self.window.UI.refreshDevices (evt)
+        self.Reset ()
     
     def MoveDeviceCmd (self, moved_device, target_device):
         
@@ -674,16 +679,13 @@ class CommandList (wx.ListCtrl):
                 return #don't need to do anything
             self.all_moves.update ({moved_device: target_device})
         
-        self.window.tree.Delete (moved_device)
-        
-        self.window.tree.AppendItem (target_device, moved_device)
-        self.window.tree.Expand (target_device)
+        target_device.expanded = True
         
         self.Regenerate ()
     
     def DetachDeviceCmd (self, child_device):
         
-        target_device = self.window.UI.master_devices[FLOATING_ID]
+        target_device = self.master_devices[FLOATING_ID]
         self.MoveDeviceCmd (child_device, target_device)
     
     def UndoMoveDeviceCmd (self, device):
@@ -694,21 +696,17 @@ class CommandList (wx.ListCtrl):
         
         self.all_creations.add (new_device)
         self.Regenerate ()
-        
-        self.window.tree.AppendItem (self.window.tree.root, new_device)
     
     def UndoCreateDeviceCmd (self, device):
         
         self.all_creations.remove (device)
         self.Regenerate ()
-        
-        self.window.tree.Delete (device)
     
     def DetachAllSlavesFromDeviceCmd (self, device):
         
-        while self.window.tree.ItemHasChildren (device):
-            child_device, _ = self.window.tree.GetFirstChild(device)
-            self.DetachDeviceCmd (child_device)
+        current_slave_list = self.display_heirarchy[device]
+        for slave in current_slave_list:
+            self.DetachDeviceCmd (slave)
     
     def ResetAllSlavesOfDeviceCmd (self, device):
         
@@ -716,38 +714,45 @@ class CommandList (wx.ListCtrl):
         
         # can't modify and iterate through the contents of the device tree 
         # simultaneously, so we need to defer our modifications
-        children_to_move = set()
+        slaves_to_move = set()
         
-        nc = self.window.tree.GetChildrenCount(device, 0)
-        child_device, cookie = self.window.tree.GetFirstChild(device)
-        for _ in xrange(nc):
-            if child_device.parent != device:
-                children_to_move.add (child_device)
-            child_device, cookie = self.window.tree.GetNextChild(device, cookie)
+        for slave in self.display_heirarchy[device]:
+            if slave.parent != device:
+                slaves_to_move.add (slave)
         
-        for child_device in children_to_move:
-            self.UndoMoveDeviceCmd (child_device)
+        for slave in slaves_to_move:
+            self.UndoMoveDeviceCmd (slave)
         
         # Now undo any devices that have been moved away from this master
         
-        for child_device in device.children:
-            self.UndoMoveDeviceCmd (child_device)
+        for slave in device.children:
+            self.UndoMoveDeviceCmd (slave)
     
     def DeleteDeviceCmd (self, device):
         
         self.DetachAllSlavesFromDeviceCmd (device)
         self.all_deletions.add (device)
-        self.window.tree.UpdateDeviceName (device)
         self.Regenerate ()
     
     def UndoDeleteDeviceCmd (self, device):
         
         self.all_deletions.remove (device)
-        self.window.tree.UpdateDeviceName (device)
         self.Regenerate ()
     
     def Reset (self):
+    
+        if len (self.all_commands):
+            confirm = wx.MessageDialog (self.UI,
+                    'You still have pending changes! These will be lost if '+
+                    'you refresh the device list. Refresh anyway?',
+                    'Proceed?', wx.YES_NO | wx.ICON_QUESTION
+                )
+            result = confirm.ShowModal ()
+            confirm.Destroy ()
+            if result == wx.ID_NO:
+                return
         
+        self.master_devices = get_device_status()
         self.all_moves = {}
         self.all_deletions = set()
         self.all_creations = set()
@@ -793,7 +798,7 @@ class CommandList (wx.ListCtrl):
         if device in self.all_deletions or device in self.all_creations or device.self_id == FLOATING_ID:
             return None
         
-        elif device in self.window.UI.master_devices.values():
+        elif device in self.master_devices.values():
             text = 'Delete '+device.name
             action = lambda _: self.DeleteDeviceCmd (device)
         
@@ -815,7 +820,7 @@ class CommandList (wx.ListCtrl):
     
     def MakeMasterDeviceMenuItems (self, menu, device):
         
-        if      device not in self.window.UI.master_devices.values() or \
+        if      device not in self.master_devices.values() or \
                 device in self.all_creations or \
                 device in self.all_deletions or \
                 device.self_id == FLOATING_ID:
@@ -853,7 +858,7 @@ class MainColumn (wx.BoxSizer):
         cmdpanel = wx.Panel (splitter)
         self.cmdlist = CommandList (self, cmdpanel)
         treepanel = wx.Panel (splitter)
-        self.tree = DeviceTree (self, treepanel)
+        self.tree = DeviceTree (UI, treepanel)
         
         splitter.SplitHorizontally (treepanel, cmdpanel)
         splitter.SetSashGravity (1.0)
@@ -869,25 +874,6 @@ class MainColumn (wx.BoxSizer):
         
         panel.SetSizer (self)
         
-    def clearTree (self):
-        self.tree.DeleteAllItems ()
-        self.cmdlist.Reset ()
-    
-    def OnDelete (self, evt):
-        
-        self.tree.delete_callback (evt)
-    
-    def OnNewMasterStart (self, _):
-        
-        self.createmaster_toolbar.Show ()
-        
-    def OnNewMasterDone (self, _):
-        
-        newdevice = PendingDevice (self.createmaster_toolbar.GetValue ())
-        self.createmaster_toolbar.Hide ()
-        
-        self.cmdlist.CreateDeviceCmd (newdevice)
-
 class UI (wx.Frame):
     
     """Top-level window widget.
@@ -903,37 +889,13 @@ class UI (wx.Frame):
         
         self.SetMinSize ((340, 150))
         
+        self.changes = Changes (self)
+        
         self.vbox = MainColumn (self)
         
-        self.master_devices = get_device_status()
-        
-        self.initDevices ()
+        self.changes.Reset ()
         
         self.Show ()
-    
-    def initDevices (self):
-        
-        for device in device_sort(self.master_devices.values()):
-            if device.self_id != FLOATING_ID:
-                self.vbox.tree.addMaster (device)
-        
-        # make sure the floating devices list comes last
-        self.vbox.tree.addMaster (self.master_devices[FLOATING_ID])
-    
-    def refreshDevices (self, _):
-        if len (self.vbox.cmdlist.all_commands):
-            confirm = wx.MessageDialog (self,
-                    'You still have pending changes! These will be lost if '+
-                    'you refresh the device list. Refresh anyway?',
-                    'Proceed?', wx.YES_NO | wx.ICON_QUESTION
-                )
-            result = confirm.ShowModal ()
-            confirm.Destroy ()
-            if result == wx.ID_NO:
-                return
-        self.master_devices = get_device_status()
-        self.vbox.clearTree()
-        self.initDevices ()
 
 app = wx.App()
 UI(None, title = 'Xinput-UI')
