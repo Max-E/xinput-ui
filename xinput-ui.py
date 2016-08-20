@@ -145,13 +145,19 @@ def read_raw_device_data ():
     
     ret = {}
     
-    for line in run_command (["/usr/bin/env", "xinput", "list"]):
+    def run_list_cmd (options = []):
+        return run_command (["/usr/bin/env", "xinput", "list"] + options)
+    
+    for id_line in run_list_cmd (["--id-only"]):
         
-        raw_device = [mystrip(field) for field in line.split ('\t')]
-        raw_class_data = [field.strip('()') for field in raw_device[2][1:-1].split()]
+        id_line = mystrip (id_line)
+        device_self_id = int (id_line)
         
-        device_self_id = int (raw_device[1].split('=')[1])
-        device_name = raw_device[0]
+        name_line = run_list_cmd (["--name-only", id_line]).next ()
+        device_name = mystrip (name_line)
+        
+        full_line = run_list_cmd (["--short", id_line]).next ()
+        raw_class_data = [field.strip ('()') for field in full_line.split ('[')[-1][:-2].split ()]
         
         # filter out XTEST devices
         if device_name.find ("XTEST") == -1:
